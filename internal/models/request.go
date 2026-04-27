@@ -12,3 +12,9 @@ type CapturedRequest struct {
 	RemoteIP   string            `json:"remote_ip"`
 	ReceivedAt time.Time         `json:"received_at"`
 }
+
+type Session struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
