@@ -1,0 +1,32 @@
+export interface Session {
+  id: string
+  created_at: string
+  expires_at: string
+}
+
+export interface CapturedRequest {
+  id: string
+  session_id: string
+  method: string
+  headers: Record<string, string>
+  body: string        // base64 when binary, UTF-8 string otherwise
+  body_size: number
+  remote_ip: string
+  received_at: string
+}
+
+export interface ReplayRequest {
+  request_id: string
+  target_url: string
+  headers?: Record<string, string>  
+  body?: string                     
+}
+
+export interface ReplayResponse {
+  status: number
+  headers: Record<string, string>
+  body: string
+  latency_ms: number
+}
+
+export type ConnectionStatus = 'connecting' | 'live' | 'disconnected'

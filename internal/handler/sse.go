@@ -29,8 +29,7 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*") // tighten this in production
-	w.Header().Set("X-Accel-Buffering", "no")          // tells nginx: don't buffer this
+	w.Header().Set("X-Accel-Buffering", "no") // tells nginx: don't buffer this
 
 	// 3. Flush support — needed to push chunks immediately
 	flusher, ok := w.(http.Flusher)
