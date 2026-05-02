@@ -4,8 +4,18 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`${res.status}: ${text}`)
+    // Try to extract structured error message from the response body
+    try {
+      const json = await res.json()
+      throw new Error(json.error ?? `${res.status}: ${res.statusText}`)
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        // Response wasn't JSON — fall back to plain text
+        const text = await res.text()
+        throw new Error(text || `${res.status}: ${res.statusText}`)
+      }
+      throw e
+    }
   }
   return res.json() as Promise<T>
 }
