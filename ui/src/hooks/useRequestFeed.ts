@@ -10,23 +10,23 @@ export function useRequestFeed(sessionId: string | null) {
   useEffect(() => {
     if (!sessionId) return
 
+    // Capture as a non-null string so TypeScript is happy inside the closure
+    const id: string = sessionId
     let cancelled = false
 
     async function init() {
-      // 1. Fetch request history first
       try {
-        const history = await api.getRequests(sessionId)
+        const history = await api.getRequests(id)   // was sessionId
         if (!cancelled) {
           setRequests(history ?? [])
         }
       } catch {
-        // History fetch failing is non-fatal — SSE will still work
+        // non-fatal
       }
 
       if (cancelled) return
 
-      // 2. Open SSE connection
-      const es = new EventSource(api.sseUrl(sessionId))
+      const es = new EventSource(api.sseUrl(id))    // was sessionId
       esRef.current = es
 
       es.addEventListener('connected', () => {
@@ -37,9 +37,9 @@ export function useRequestFeed(sessionId: string | null) {
         if (cancelled) return
         try {
           const incoming: CapturedRequest = JSON.parse(e.data)
-          setRequests((prev) => [incoming, ...prev]) // newest first
+          setRequests((prev) => [incoming, ...prev])
         } catch {
-          // malformed event — ignore
+          // malformed event
         }
       })
 
