@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/EOEboh/hookdrop/internal/models"
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -52,6 +53,24 @@ func (s *Store) migrate() error {
 
     CREATE INDEX IF NOT EXISTS idx_requests_session
         ON requests(session_id, received_at DESC);
+	
+	CREATE TABLE IF NOT EXISTS users (
+        id         TEXT PRIMARY KEY,
+        email      TEXT UNIQUE NOT NULL,
+        created_at DATETIME NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS magic_links (
+        id         TEXT PRIMARY KEY,
+        user_id    TEXT NOT NULL,
+        token      TEXT UNIQUE NOT NULL,
+        expires_at DATETIME NOT NULL,
+        used       INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_magic_links_token
+        ON magic_links(token);
     `
 	_, err := s.db.Exec(schema)
 	return err
@@ -160,4 +179,104 @@ func (s *Store) GetRequest(id string) (*models.CapturedRequest, error) {
 		return nil, err
 	}
 	return req, nil
+}
+
+func (s *Store) GetOrCreateUser(email string) (*models.User, error) {
+	// Try fetching existing user first
+	user := &models.User{}
+	err := s.db.QueryRow(
+		`SELECT id, email, created_at FROM users WHERE email = ?`, email,
+	).Scan(&user.ID, &user.Email, &user.CreatedAt)
+
+	if err == nil {
+		return user, nil // already exists
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Create new user
+	user = &models.User{
+		ID:        uuid.NewString(),
+		Email:     email,
+		CreatedAt: time.Now().UTC(),
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)`,
+		user.ID, user.Email, user.CreatedAt,
+	)
+	return user, err
+}
+
+func (s *Store) CreateMagicLink(userID string) (*models.MagicLink, error) {
+	// Invalidate any existing unused links for this user
+	_, err := s.db.Exec(
+		`UPDATE magic_links SET used = 1 WHERE user_id = ? AND used = 0`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	link := &models.MagicLink{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		Token:     uuid.NewString() + uuid.NewString(), // long token — harder to brute force
+		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
+		Used:      false,
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO magic_links (id, user_id, token, expires_at, used)
+         VALUES (?, ?, ?, ?, 0)`,
+		link.ID, link.UserID, link.Token, link.ExpiresAt,
+	)
+	return link, err
+}
+
+func (s *Store) ConsumeMagicLink(token string) (*models.User, error) {
+	// Fetch the link and join with the user in one query
+	var link models.MagicLink
+	var user models.User
+
+	err := s.db.QueryRow(`
+        SELECT ml.id, ml.user_id, ml.expires_at, ml.used,
+               u.id, u.email, u.created_at
+        FROM magic_links ml
+        JOIN users u ON u.id = ml.user_id
+        WHERE ml.token = ?`, token,
+	).Scan(
+		&link.ID, &link.UserID, &link.ExpiresAt, &link.Used,
+		&user.ID, &user.Email, &user.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil // token not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	if link.Used {
+		return nil, fmt.Errorf("token already used")
+	}
+	if time.Now().After(link.ExpiresAt) {
+		return nil, fmt.Errorf("token expired")
+	}
+
+	// Mark as consumed — one-time use
+	_, err = s.db.Exec(
+		`UPDATE magic_links SET used = 1 WHERE id = ?`, link.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (s *Store) GetUserByID(id string) (*models.User, error) {
+	user := &models.User{}
+	err := s.db.QueryRow(
+		`SELECT id, email, created_at FROM users WHERE id = ?`, id,
+	).Scan(&user.ID, &user.Email, &user.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return user, err
 }

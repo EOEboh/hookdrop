@@ -32,3 +32,17 @@ type ReplayResponse struct {
 	Body      string            `json:"body"`
 	LatencyMs int64             `json:"latency_ms"`
 }
+
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type MagicLink struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Used      bool      `json:"used"`
+}
