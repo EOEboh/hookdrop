@@ -10,9 +10,10 @@ interface Props {
   onSelect: (req: CapturedRequest) => void
   onReset: () => void
   onClear: () => void
+  onLogout: () => void
 }
 
-export function Sidebar({ session, status, requests, selectedId, onSelect, onReset, onClear }: Props) {
+export function Sidebar({ session, status, requests, selectedId, onSelect, onReset, onClear, onLogout }: Props) {
   return (
     <aside className="w-80 min-w-[280px] flex flex-col border-r border-zinc-800 bg-zinc-950 h-screen sticky top-0">
       {/* Logo */}
@@ -29,6 +30,13 @@ export function Sidebar({ session, status, requests, selectedId, onSelect, onRes
             Clear
           </button>
         )}
+        // In Sidebar.tsx — add to the logo div
+<button
+  onClick={onLogout}
+  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+>
+  Log out
+</button>
       </div>
 
       <SessionBar session={session} status={status} onReset={onReset} />

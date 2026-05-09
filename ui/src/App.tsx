@@ -1,15 +1,47 @@
 import { useState } from 'react'
+import { useAuth } from './context/AuthContext'
 import { useSession } from './hooks/useSession'
 import { useRequestFeed } from './hooks/useRequestFeed'
 import { Sidebar } from './components/layout/Sidebar'
 import { MainPanel } from './components/layout/MainPanel'
+import { LoginPage } from './pages/LoginPage'
+import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { Spinner } from './components/ui/Spinner'
 import type { CapturedRequest } from './types'
 
 export default function App() {
+  const { user, loading: authLoading, logout } = useAuth()
+  const [selected, setSelected] = useState<CapturedRequest | null>(null)
+
+  // Handle the magic link callback route
+  if (window.location.pathname === '/auth/callback') {
+    return <AuthCallbackPage />
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center gap-3">
+        <Spinner size={5} />
+      </div>
+    )
+  }
+
+  if (!user) return <LoginPage />
+
+  return <AuthenticatedApp selected={selected} setSelected={setSelected} onLogout={logout} />
+}
+
+function AuthenticatedApp({
+  selected,
+  setSelected,
+  onLogout,
+}: {
+  selected: CapturedRequest | null
+  setSelected: (r: CapturedRequest | null) => void
+  onLogout: () => void
+}) {
   const { session, loading, error, resetSession } = useSession()
   const { requests, status, clearRequests } = useRequestFeed(session?.id ?? null)
-  const [selected, setSelected] = useState<CapturedRequest | null>(null)
 
   if (loading) {
     return (
@@ -25,10 +57,7 @@ export default function App() {
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="text-center space-y-3">
           <p className="text-red-400 text-sm">{error ?? 'Failed to start session'}</p>
-          <button
-            onClick={resetSession}
-            className="text-xs text-zinc-400 hover:text-zinc-200 underline"
-          >
+          <button onClick={resetSession} className="text-xs text-zinc-400 hover:text-zinc-200 underline">
             Try again
           </button>
         </div>
@@ -46,6 +75,7 @@ export default function App() {
         onSelect={setSelected}
         onReset={() => { resetSession(); setSelected(null) }}
         onClear={clearRequests}
+        onLogout={onLogout}
       />
       <MainPanel selected={selected} />
     </div>

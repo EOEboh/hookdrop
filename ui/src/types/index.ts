@@ -1,3 +1,14 @@
+export interface AuthUser {
+  id: string
+  email: string
+}
+
+export interface AuthState {
+  user: AuthUser | null
+  token: string | null
+  loading: boolean
+}
+
 export interface Session {
   id: string
   created_at: string

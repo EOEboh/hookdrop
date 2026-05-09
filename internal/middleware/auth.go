@@ -20,21 +20,30 @@ type UserContext struct {
 func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Pull token from Authorization: Bearer <token>
+			tokenStr := ""
+
+			// Header first
 			header := r.Header.Get("Authorization")
-			if !strings.HasPrefix(header, "Bearer ") {
+			if strings.HasPrefix(header, "Bearer ") {
+				tokenStr = strings.TrimPrefix(header, "Bearer ")
+			}
+
+			// Fall back to query param (SSE connections)
+			if tokenStr == "" {
+				tokenStr = r.URL.Query().Get("token")
+			}
+
+			if tokenStr == "" {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			tokenStr := strings.TrimPrefix(header, "Bearer ")
 			claims, err := auth.ValidateToken(tokenStr, jwtSecret)
 			if err != nil {
 				http.Error(w, "invalid token", http.StatusUnauthorized)
 				return
 			}
 
-			// Attach user info to request context
 			ctx := context.WithValue(r.Context(), UserContextKey, &UserContext{
 				ID:    claims.UserID,
 				Email: claims.Email,
