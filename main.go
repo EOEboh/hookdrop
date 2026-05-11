@@ -22,7 +22,8 @@ func main() {
 	jwtSecret := getEnv("JWT_SECRET", "change-me-in-production")
 	resendKey := getEnv("RESEND_API_KEY", "")
 	fromAddr := getEnv("EMAIL_FROM", "hookdrop <noreply@hookdrop.app>")
-	appURL := getEnv("APP_URL", "http://localhost:5173")
+	apiURL := getEnv("API_URL", "http://localhost:8080")
+	frontendURL := getEnv("FRONTEND_URL", "http://localhost:5173")
 
 	st, err := store.New(dbPath)
 	if err != nil {
@@ -37,10 +38,11 @@ func main() {
 	mgr.StartCleanup()
 
 	authHandler := &handler.AuthHandler{
-		Store:     st,
-		Emailer:   emailer,
-		JWTSecret: jwtSecret,
-		AppURL:    appURL,
+		Store:       st,
+		Emailer:     emailer,
+		JWTSecret:   jwtSecret,
+		APIURL:      apiURL,
+		FrontendURL: frontendURL,
 	}
 
 	// Auth middleware — wraps protected routes

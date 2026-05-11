@@ -13,10 +13,11 @@ import (
 )
 
 type AuthHandler struct {
-	Store     *store.Store
-	Emailer   *email.Sender
-	JWTSecret string
-	AppURL    string // e.g. https://hookdrop.app
+	Store       *store.Store
+	Emailer     *email.Sender
+	JWTSecret   string
+	APIURL      string // https://api.hookdrop.app
+	FrontendURL string // https://hookdrop.app
 }
 
 // POST /auth/request — send a magic link
@@ -52,7 +53,8 @@ func (h *AuthHandler) RequestLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	magicURL := fmt.Sprintf("%s/auth/verify?token=%s", h.AppURL, link.Token)
+	// RequestLink — use APIURL so the link hits the Go verify endpoint
+	magicURL := fmt.Sprintf("%s/auth/verify?token=%s", h.APIURL, link.Token)
 
 	// Send the email
 	if err := h.Emailer.SendMagicLink(body.Email, magicURL); err != nil {
@@ -92,8 +94,7 @@ func (h *AuthHandler) VerifyLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to the frontend with the token in the URL fragment
-	// Fragment (#) is never sent to servers — safer than query params
-	redirectURL := fmt.Sprintf("%s/auth/callback#token=%s", h.AppURL, jwt)
+	// VerifyLink — use FrontendURL so after verification user lands on the React app
+	redirectURL := fmt.Sprintf("%s/auth/callback#token=%s", h.FrontendURL, jwt)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }

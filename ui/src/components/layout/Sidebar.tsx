@@ -30,7 +30,7 @@ export function Sidebar({ session, status, requests, selectedId, onSelect, onRes
             Clear
           </button>
         )}
-        // In Sidebar.tsx — add to the logo div
+
 <button
   onClick={onLogout}
   className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
