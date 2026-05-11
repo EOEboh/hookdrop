@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/EOEboh/hookdrop/internal/email"
 	"github.com/EOEboh/hookdrop/internal/handler"
@@ -14,7 +16,35 @@ import (
 	"github.com/EOEboh/hookdrop/internal/store"
 )
 
+func loadEnvFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return // file doesn't exist — that's fine in production
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		// Only set if not already set — real env vars take priority
+		if os.Getenv(key) == "" {
+			os.Setenv(key, val)
+		}
+	}
+}
+
 func main() {
+	loadEnvFile(".env.local")
+
 	// Config from environment
 	dbPath := getEnv("DB_PATH", "hookdrop.db")
 	allowedOrigin := getEnv("ALLOWED_ORIGIN", "http://localhost:5173")

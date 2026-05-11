@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 
-export function LoginPage() {
+interface LoginPageProps {
+  errorHint?: string | null
+}
+
+export function LoginPage({errorHint}: LoginPageProps) {
   const [email, setEmail]   = useState('')
   const [sent, setSent]     = useState(false)
   const [loading, setLoading] = useState(false)
@@ -63,6 +67,11 @@ export function LoginPage() {
             className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors"
             autoFocus
           />
+            {errorHint === 'invalid_link' && (
+              <p className="text-xs text-amber-400 text-center bg-amber-500/10 px-3 py-2 rounded-lg">
+                That link was invalid or already used. Request a new one below.
+              </p>
+            )}
           <button
             onClick={handleSubmit}
             disabled={loading || !email}

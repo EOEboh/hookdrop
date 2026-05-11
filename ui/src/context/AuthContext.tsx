@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { AuthState, AuthUser } from '../types'
 
 interface AuthContextValue extends AuthState {
@@ -28,23 +28,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = localStorage.getItem('hookdrop_token')
     if (token) {
       const user = parseToken(token)
+      // Validate token hasn't expired before trusting it
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          localStorage.removeItem('hookdrop_token')
+          setState({ user: null, token: null, loading: false })
+          return
+        }
+      } catch {
+        localStorage.removeItem('hookdrop_token')
+        setState({ user: null, token: null, loading: false })
+        return
+      }
       setState({ user, token, loading: false })
     } else {
       setState(s => ({ ...s, loading: false }))
     }
   }, [])
 
-  function login(token: string) {
+
+  const login = useCallback((token: string) => {
     localStorage.setItem('hookdrop_token', token)
     const user = parseToken(token)
     setState({ user, token, loading: false })
-  }
+  }, [])
 
-  function logout() {
+  const logout = useCallback(() => {
     localStorage.removeItem('hookdrop_token')
     localStorage.removeItem('hookdrop_session')
     setState({ user: null, token: null, loading: false })
-  }
+  }, [])
 
   return (
     <AuthContext.Provider value={{ ...state, login, logout }}>

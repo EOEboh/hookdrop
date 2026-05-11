@@ -9,6 +9,9 @@ import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { Spinner } from './components/ui/Spinner'
 import type { CapturedRequest } from './types'
 
+
+
+
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth()
   const [selected, setSelected] = useState<CapturedRequest | null>(null)
@@ -18,15 +21,19 @@ export default function App() {
     return <AuthCallbackPage />
   }
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center gap-3">
-        <Spinner size={5} />
-      </div>
-    )
-  }
+  const urlError = new URLSearchParams(window.location.search).get('error')
 
-  if (!user) return <LoginPage />
+  if (authLoading) {
+  return (
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center gap-3">
+      <Spinner size={5} />
+    </div>
+  )
+}
+
+if (!user) {
+  return <LoginPage errorHint={urlError} />
+}
 
   return <AuthenticatedApp selected={selected} setSelected={setSelected} onLogout={logout} />
 }
