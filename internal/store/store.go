@@ -71,6 +71,25 @@ func (s *Store) migrate() error {
 
     CREATE INDEX IF NOT EXISTS idx_magic_links_token
         ON magic_links(token);
+	
+	CREATE TABLE IF NOT EXISTS endpoints (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    slug         TEXT UNIQUE NOT NULL,
+    name         TEXT NOT NULL,
+    description  TEXT,
+    created_at   DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+	CREATE INDEX IF NOT EXISTS idx_endpoints_user
+		ON endpoints(user_id);
+
+	CREATE INDEX IF NOT EXISTS idx_endpoints_slug
+		ON endpoints(slug);
+
+	ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id);
+	ALTER TABLE requests ADD COLUMN endpoint_id TEXT REFERENCES endpoints(id);
     `
 	_, err := s.db.Exec(schema)
 	return err

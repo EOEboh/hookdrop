@@ -13,6 +13,15 @@ type CapturedRequest struct {
 	ReceivedAt time.Time         `json:"received_at"`
 }
 
+type Endpoint struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	Slug        string    `json:"slug"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type Session struct {
 	ID        string    `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
