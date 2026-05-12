@@ -299,3 +299,66 @@ func (s *Store) GetUserByID(id string) (*models.User, error) {
 	}
 	return user, err
 }
+
+func (s *Store) CreateEndpoint(ep *models.Endpoint) error {
+	_, err := s.db.Exec(
+		`INSERT INTO endpoints (id, user_id, slug, name, description, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+		ep.ID, ep.UserID, ep.Slug, ep.Name, ep.Description, ep.CreatedAt,
+	)
+	return err
+}
+
+func (s *Store) GetEndpointBySlug(slug string) (*models.Endpoint, error) {
+	ep := &models.Endpoint{}
+	err := s.db.QueryRow(
+		`SELECT id, user_id, slug, name, description, created_at
+         FROM endpoints WHERE slug = ?`, slug,
+	).Scan(&ep.ID, &ep.UserID, &ep.Slug, &ep.Name, &ep.Description, &ep.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return ep, err
+}
+
+func (s *Store) GetEndpointsByUser(userID string) ([]*models.Endpoint, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, slug, name, description, created_at
+         FROM endpoints WHERE user_id = ?
+         ORDER BY created_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*models.Endpoint
+	for rows.Next() {
+		ep := &models.Endpoint{}
+		err := rows.Scan(
+			&ep.ID, &ep.UserID, &ep.Slug,
+			&ep.Name, &ep.Description, &ep.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, ep)
+	}
+	return results, rows.Err()
+}
+
+func (s *Store) DeleteEndpoint(id, userID string) error {
+	// userID check ensures users can only delete their own endpoints
+	_, err := s.db.Exec(
+		`DELETE FROM endpoints WHERE id = ? AND user_id = ?`, id, userID,
+	)
+	return err
+}
+
+func (s *Store) SlugExists(slug string) (bool, error) {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM endpoints WHERE slug = ?`, slug,
+	).Scan(&count)
+	return count > 0, err
+}

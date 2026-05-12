@@ -19,7 +19,7 @@ import (
 func loadEnvFile(path string) {
 	f, err := os.Open(path)
 	if err != nil {
-		return // file doesn't exist — that's fine in production
+		return // file doesn't exist: fine in production
 	}
 	defer f.Close()
 
@@ -35,7 +35,7 @@ func loadEnvFile(path string) {
 		}
 		key := strings.TrimSpace(parts[0])
 		val := strings.TrimSpace(parts[1])
-		// Only set if not already set — real env vars take priority
+		// Only set if not already set: real env vars take priority
 		if os.Getenv(key) == "" {
 			os.Setenv(key, val)
 		}
@@ -75,22 +75,24 @@ func main() {
 		FrontendURL: frontendURL,
 	}
 
-	// Auth middleware — wraps protected routes
+	// Auth middleware: wraps protected routes
 	requireAuth := middleware.Auth(jwtSecret)
 
 	mux := http.NewServeMux()
 
-	// Public — no auth needed
+	// Public: no auth needed
 	mux.HandleFunc("/auth/request", authHandler.RequestLink)
 	mux.HandleFunc("/auth/verify", authHandler.VerifyLink)
 
-	// Protected — require valid JWT
+	// Protected: require valid JWT
 	mux.Handle("/sessions", requireAuth(&handler.SessionHandler{Manager: mgr}))
 	mux.Handle("/requests/", requireAuth(&handler.RequestsHandler{Store: st}))
 	mux.Handle("/replay", requireAuth(&handler.ReplayHandler{Store: st, Engine: replayEngine}))
 	mux.Handle("/events/", requireAuth(&handler.SSEHandler{Broadcaster: broadcaster, Store: st}))
+	mux.Handle("/endpoints", requireAuth(&handler.EndpointsHandler{Store: st}))
+	mux.Handle("/endpoints/", requireAuth(&handler.EndpointsHandler{Store: st}))
 
-	// Inbox is intentionally public — webhook senders don't authenticate
+	// Inbox is intentionally public: webhook senders don't authenticate
 	mux.Handle("/i/", &handler.InboxHandler{Store: st, Broadcast: broadcaster.Broadcast})
 
 	log.Printf("hookdrop listening on :%s", port)

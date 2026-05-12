@@ -15,25 +15,39 @@ import (
 
 type InboxHandler struct {
 	Store     *store.Store
-	Broadcast func(sessionID string, req *models.CapturedRequest) // SSE hook (wired up later)
+	Broadcast func(sessionID string, req *models.CapturedRequest)
 }
 
 func (h *InboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 1. Extract session ID from URL: /i/{sessionID}
-	sessionID := strings.TrimPrefix(r.URL.Path, "/i/")
-	sessionID = strings.Trim(sessionID, "/")
-	if sessionID == "" {
-		http.Error(w, "missing session id", http.StatusBadRequest)
+	identifier := strings.TrimPrefix(r.URL.Path, "/i/")
+	identifier = strings.Trim(identifier, "/")
+
+	if identifier == "" {
+		http.Error(w, "missing endpoint identifier", http.StatusBadRequest)
 		return
 	}
 
-	// 2. Verify session exists
-	if !h.Store.SessionExists(sessionID) {
-		http.Error(w, "session not found", http.StatusNotFound)
+	var sessionID string
+
+	// First check if it's a named endpoint slug
+	ep, err := h.Store.GetEndpointBySlug(identifier)
+	if err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
 
-	// 3. Read body — cap at 1MB to prevent abuse
+	if ep != nil {
+		// Named endpoint: use its ID as the session identifier
+		sessionID = ep.ID
+	} else {
+		// Fall back to temporary session lookup
+		if !h.Store.SessionExists(identifier) {
+			http.Error(w, "endpoint not found", http.StatusNotFound)
+			return
+		}
+		sessionID = identifier
+	}
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusInternalServerError)
@@ -41,13 +55,11 @@ func (h *InboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// 4. Flatten headers (deduplicate multi-value into comma-joined)
 	headers := make(map[string]string)
 	for key, values := range r.Header {
 		headers[http.CanonicalHeaderKey(key)] = strings.Join(values, ", ")
 	}
 
-	// 5. Build the captured request
 	captured := &models.CapturedRequest{
 		ID:         uuid.NewString(),
 		SessionID:  sessionID,
@@ -59,22 +71,22 @@ func (h *InboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ReceivedAt: time.Now().UTC(),
 	}
 
-	// 6. Persist it
 	if err := h.Store.SaveRequest(captured); err != nil {
 		log.Printf("failed to save request: %v", err)
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
 
-	// 7. Broadcast to any connected React clients (no-op until SSE is wired)
 	if h.Broadcast != nil {
 		go h.Broadcast(sessionID, captured)
 	}
 
-	// 8. Acknowledge the webhook sender — always 200, always fast
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "received", "id": captured.ID})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "received",
+		"id":     captured.ID,
+	})
 }
 
 // extractIP handles X-Forwarded-For from proxies/load balancers
