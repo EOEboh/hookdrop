@@ -1,6 +1,10 @@
-import type { CapturedRequest, ConnectionStatus, Session } from '../../types'
+import { useState } from 'react'
+import type { CapturedRequest, ConnectionStatus, Endpoint, Session } from '../../types'
 import { SessionBar } from '../session/SessionBar'
 import { RequestList } from '../feed/RequestList'
+import { EndpointList } from '../endpoints/EndpointList'
+import { CreateEndpointModal } from '../endpoints/CreateEndpointModal'
+import { useEndpoints } from '../../hooks/useEndpoints'
 
 interface Props {
   session: Session
@@ -11,46 +15,100 @@ interface Props {
   onReset: () => void
   onClear: () => void
   onLogout: () => void
+  onSelectEndpoint: (ep: Endpoint) => void
+  selectedEndpointId: string | null
 }
 
-export function Sidebar({ session, status, requests, selectedId, onSelect, onReset, onClear, onLogout }: Props) {
+type Tab = 'session' | 'endpoints'
+
+export function Sidebar({
+  session, status, requests, selectedId,
+  onSelect, onReset, onClear, onLogout,
+  onSelectEndpoint, selectedEndpointId,
+}: Props) {
+  const [tab, setTab]           = useState<Tab>('session')
+  const [showModal, setShowModal] = useState(false)
+  const { endpoints, createEndpoint, deleteEndpoint } = useEndpoints()
+
   return (
     <aside className="w-80 min-w-[280px] flex flex-col border-r border-zinc-800 bg-zinc-950 h-screen sticky top-0">
+
       {/* Logo */}
       <div className="px-4 py-4 border-b border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-lg">⚡</span>
           <span className="font-semibold text-zinc-100 tracking-tight">hookdrop</span>
         </div>
-        {requests.length > 0 && (
-          <button
-            onClick={onClear}
-            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-          >
-            Clear
-          </button>
-        )}
-
-<button
-  onClick={onLogout}
-  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
->
-  Log out
-</button>
+        <button
+          onClick={onLogout}
+          className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+        >
+          Log out
+        </button>
       </div>
 
-      <SessionBar session={session} status={status} onReset={onReset} />
+      {/* Tabs */}
+      <div className="flex border-b border-zinc-800">
+        {(['session', 'endpoints'] as Tab[]).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 py-2.5 text-xs font-medium transition-colors capitalize ${
+              tab === t
+                ? 'text-emerald-400 border-b-2 border-emerald-400'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            {t === 'session' ? 'Temporary' : 'Named'}
+          </button>
+        ))}
+      </div>
 
-      {/* Request count */}
-      {requests.length > 0 && (
-        <div className="px-4 py-2 border-b border-zinc-800">
-          <span className="text-xs text-zinc-600">
-            {requests.length} request{requests.length !== 1 ? 's' : ''} captured
-          </span>
-        </div>
+      {tab === 'session' ? (
+        <>
+          <SessionBar session={session} status={status} onReset={onReset} />
+          {requests.length > 0 && (
+            <div className="px-4 py-2 border-b border-zinc-800 flex items-center justify-between">
+              <span className="text-xs text-zinc-600">
+                {requests.length} request{requests.length !== 1 ? 's' : ''}
+              </span>
+              <button
+                onClick={onClear}
+                className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          <RequestList requests={requests} selectedId={selectedId} onSelect={onSelect} />
+        </>
+      ) : (
+        <>
+          <div className="p-3 border-b border-zinc-800">
+            <button
+              onClick={() => setShowModal(true)}
+              className="w-full py-2 rounded-lg border border-dashed border-zinc-700 hover:border-emerald-500 text-xs text-zinc-500 hover:text-emerald-400 transition-colors"
+            >
+              + New named endpoint
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <EndpointList
+              endpoints={endpoints}
+              selectedId={selectedEndpointId}
+              onSelect={onSelectEndpoint}
+              onDelete={deleteEndpoint}
+            />
+          </div>
+        </>
       )}
 
-      <RequestList requests={requests} selectedId={selectedId} onSelect={onSelect} />
+      {showModal && (
+        <CreateEndpointModal
+          onClose={() => setShowModal(false)}
+          onCreate={createEndpoint}
+        />
+      )}
     </aside>
   )
 }

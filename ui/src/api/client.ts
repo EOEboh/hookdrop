@@ -1,5 +1,5 @@
 import type {
-  CapturedRequest, ReplayRequest,
+  CapturedRequest, Endpoint, ReplayRequest,
   ReplayResponse, Session
 } from '../types'
 
@@ -65,4 +65,40 @@ export const api = {
     // Pass token as query param for SSE since EventSource doesn't support headers
     return `${BASE_URL}/events/${sessionId}?token=${token}`
   },
+
+  getEndpoints(): Promise<Endpoint[]> {
+  return fetch(`${BASE_URL}/endpoints`, {
+    headers: { ...authHeaders() },
+  }).then(handle<Endpoint[]>)
+},
+
+createEndpoint(data: {
+  slug: string
+  name: string
+  description?: string
+}): Promise<Endpoint> {
+  return fetch(`${BASE_URL}/endpoints`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(data),
+  }).then(handle<Endpoint>)
+},
+
+deleteEndpoint(id: string): Promise<void> {
+  return fetch(`${BASE_URL}/endpoints/${id}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  }).then(res => {
+    if (!res.ok) throw new Error(`${res.status}`)
+  })
+},
+
+checkSlug(slug: string): Promise<{ available: boolean }> {
+  return fetch(`${BASE_URL}/endpoints/check-slug?slug=${encodeURIComponent(slug)}`, {
+    headers: { ...authHeaders() },
+  }).then(handle<{ available: boolean }>)
+},
 }

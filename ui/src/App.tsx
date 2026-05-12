@@ -7,7 +7,7 @@ import { MainPanel } from './components/layout/MainPanel'
 import { LoginPage } from './pages/LoginPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { Spinner } from './components/ui/Spinner'
-import type { CapturedRequest } from './types'
+import type { CapturedRequest, Endpoint } from './types'
 
 
 
@@ -15,6 +15,8 @@ import type { CapturedRequest } from './types'
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth()
   const [selected, setSelected] = useState<CapturedRequest | null>(null)
+
+
 
   // Handle the magic link callback route
   if (window.location.pathname === '/auth/callback') {
@@ -50,6 +52,11 @@ function AuthenticatedApp({
   const { session, loading, error, resetSession } = useSession()
   const { requests, status, clearRequests } = useRequestFeed(session?.id ?? null)
 
+    const [selectedEndpoint, setSelectedEndpoint] = useState<Endpoint | null>(null)
+// const { requests: endpointRequests, status: endpointStatus } = useRequestFeed(
+//   selectedEndpoint?.id ?? null
+// )
+
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center gap-3">
@@ -75,6 +82,8 @@ function AuthenticatedApp({
   return (
     <div className="flex min-h-screen bg-zinc-950 text-zinc-100">
       <Sidebar
+      onSelectEndpoint={setSelectedEndpoint}
+selectedEndpointId={selectedEndpoint?.id ?? null}
         session={session}
         status={status}
         requests={requests}
