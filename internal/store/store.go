@@ -362,3 +362,17 @@ func (s *Store) SlugExists(slug string) (bool, error) {
 	).Scan(&count)
 	return count > 0, err
 }
+
+// EndpointIDExists checks if an ID belongs to a named endpoint
+func (s *Store) EndpointIDExists(id string) bool {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM endpoints WHERE id = ?`, id,
+	).Scan(&count)
+	return err == nil && count > 0
+}
+
+// IdentifierExists checks both sessions and named endpoints
+func (s *Store) IdentifierExists(id string) bool {
+	return s.SessionExists(id) || s.EndpointIDExists(id)
+}

@@ -22,12 +22,13 @@ func (h *RequestsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.Store.SessionExists(sessionID) {
+	if !h.Store.IdentifierExists(sessionID) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
 
 	requests, err := h.Store.GetRequests(sessionID, 100)
+
 	if err != nil {
 		http.Error(w, "failed to fetch requests", http.StatusInternalServerError)
 		return
