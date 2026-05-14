@@ -31,6 +31,36 @@ func New(dbPath string) (*Store, error) {
 	return s, nil
 }
 
+// addColumnIfNotExists safely runs ALTER TABLE ADD COLUMN —
+func (s *Store) addColumnIfNotExists(table, column, definition string) error {
+	// Query the table's column info
+	rows, err := s.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var defaultVal sql.NullString
+
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultVal, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil // Column already exists, no need to add
+		}
+	}
+
+	// Column doesn't exist: add it
+	_, err = s.db.Exec(
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition),
+	)
+	return err
+}
+
 func (s *Store) migrate() error {
 	schema := `
     CREATE TABLE IF NOT EXISTS sessions (
@@ -43,7 +73,7 @@ func (s *Store) migrate() error {
         id          TEXT PRIMARY KEY,
         session_id  TEXT NOT NULL,
         method      TEXT NOT NULL,
-        headers     TEXT NOT NULL,   -- JSON blob
+        headers     TEXT NOT NULL,
         body        BLOB,
         body_size   INTEGER NOT NULL,
         remote_ip   TEXT NOT NULL,
@@ -53,8 +83,8 @@ func (s *Store) migrate() error {
 
     CREATE INDEX IF NOT EXISTS idx_requests_session
         ON requests(session_id, received_at DESC);
-	
-	CREATE TABLE IF NOT EXISTS users (
+
+    CREATE TABLE IF NOT EXISTS users (
         id         TEXT PRIMARY KEY,
         email      TEXT UNIQUE NOT NULL,
         created_at DATETIME NOT NULL
@@ -71,28 +101,45 @@ func (s *Store) migrate() error {
 
     CREATE INDEX IF NOT EXISTS idx_magic_links_token
         ON magic_links(token);
-	
-	CREATE TABLE IF NOT EXISTS endpoints (
-    id           TEXT PRIMARY KEY,
-    user_id      TEXT NOT NULL,
-    slug         TEXT UNIQUE NOT NULL,
-    name         TEXT NOT NULL,
-    description  TEXT,
-    created_at   DATETIME NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
 
-	CREATE INDEX IF NOT EXISTS idx_endpoints_user
-		ON endpoints(user_id);
+    CREATE TABLE IF NOT EXISTS endpoints (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        slug        TEXT UNIQUE NOT NULL,
+        name        TEXT NOT NULL,
+        description TEXT,
+        created_at  DATETIME NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
 
-	CREATE INDEX IF NOT EXISTS idx_endpoints_slug
-		ON endpoints(slug);
+    CREATE INDEX IF NOT EXISTS idx_endpoints_user
+        ON endpoints(user_id);
 
-	ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id);
-	ALTER TABLE requests ADD COLUMN endpoint_id TEXT REFERENCES endpoints(id);
+    CREATE INDEX IF NOT EXISTS idx_endpoints_slug
+        ON endpoints(slug);
     `
-	_, err := s.db.Exec(schema)
-	return err
+
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Safe column additions — idempotent, safe to run on every startup
+	migrations := []struct {
+		table      string
+		column     string
+		definition string
+	}{
+		{"sessions", "user_id", "TEXT REFERENCES users(id)"},
+		{"requests", "endpoint_id", "TEXT REFERENCES endpoints(id)"},
+	}
+
+	for _, m := range migrations {
+		if err := s.addColumnIfNotExists(m.table, m.column, m.definition); err != nil {
+			return fmt.Errorf("add column %s.%s: %w", m.table, m.column, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *Store) CreateSession(session *models.Session) error {
