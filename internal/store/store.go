@@ -31,7 +31,7 @@ func New(dbPath string) (*Store, error) {
 	return s, nil
 }
 
-// addColumnIfNotExists safely runs ALTER TABLE ADD COLUMN —
+// addColumnIfNotExists safely runs ALTER TABLE ADD COLUMN
 func (s *Store) addColumnIfNotExists(table, column, definition string) error {
 	// Query the table's column info
 	rows, err := s.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))

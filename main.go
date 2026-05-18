@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/EOEboh/hookdrop/internal/email"
@@ -45,7 +46,6 @@ func loadEnvFile(path string) {
 func main() {
 	loadEnvFile(".env.local")
 
-	// Config from environment
 	dbPath := getEnv("DB_PATH", "hookdrop.db")
 	allowedOrigin := getEnv("ALLOWED_ORIGIN", "http://localhost:5173")
 	port := getEnv("PORT", "8080")
@@ -55,6 +55,10 @@ func main() {
 	apiURL := getEnv("API_URL", "http://localhost:8080")
 	frontendURL := getEnv("FRONTEND_URL", "http://localhost:5173")
 
+	// Defaults: 30 token capacity, 5 refills/sec per IP
+	rlCapacity := getEnvFloat("RATE_LIMIT_CAPACITY", 30)
+	rlRefill := getEnvFloat("RATE_LIMIT_REFILL", 5)
+
 	st, err := store.New(dbPath)
 	if err != nil {
 		log.Fatalf("failed to init store: %v", err)
@@ -63,6 +67,7 @@ func main() {
 	broadcaster := sse.NewBroadcaster()
 	replayEngine := replay.NewEngine()
 	emailer := email.NewSender(resendKey, fromAddr)
+	rateLimiter := middleware.NewRateLimiter(rlCapacity, rlRefill)
 
 	mgr := session.NewManager(st)
 	mgr.StartCleanup()
@@ -75,16 +80,16 @@ func main() {
 		FrontendURL: frontendURL,
 	}
 
-	// Auth middleware: wraps protected routes
 	requireAuth := middleware.Auth(jwtSecret)
+	inboxLimiter := middleware.InboxRateLimit(rateLimiter)
 
 	mux := http.NewServeMux()
 
-	// Public: no auth needed
+	// Public auth routes
 	mux.HandleFunc("/auth/request", authHandler.RequestLink)
 	mux.HandleFunc("/auth/verify", authHandler.VerifyLink)
 
-	// Protected: require valid JWT
+	// Protected routes
 	mux.Handle("/sessions", requireAuth(&handler.SessionHandler{Manager: mgr}))
 	mux.Handle("/requests/", requireAuth(&handler.RequestsHandler{Store: st}))
 	mux.Handle("/replay", requireAuth(&handler.ReplayHandler{Store: st, Engine: replayEngine}))
@@ -92,13 +97,29 @@ func main() {
 	mux.Handle("/endpoints", requireAuth(&handler.EndpointsHandler{Store: st}))
 	mux.Handle("/endpoints/", requireAuth(&handler.EndpointsHandler{Store: st}))
 
-	// Inbox is intentionally public: webhook senders don't authenticate
-	mux.Handle("/i/", &handler.InboxHandler{Store: st, Broadcast: broadcaster.Broadcast})
+	// Inbox: public but rate limited
+	inboxHandler := &handler.InboxHandler{
+		Store:     st,
+		Broadcast: broadcaster.Broadcast,
+	}
+	mux.Handle("/i/", inboxLimiter(inboxHandler))
 
 	log.Printf("hookdrop listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, middleware.CORS(mux, allowedOrigin)); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func getEnvFloat(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
 }
 
 func getEnv(key, fallback string) string {
