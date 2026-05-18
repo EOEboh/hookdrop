@@ -95,7 +95,15 @@ func main() {
 	mux.Handle("/replay", requireAuth(&handler.ReplayHandler{Store: st, Engine: replayEngine}))
 	mux.Handle("/events/", requireAuth(&handler.SSEHandler{Broadcaster: broadcaster, Store: st}))
 	mux.Handle("/endpoints", requireAuth(&handler.EndpointsHandler{Store: st}))
-	mux.Handle("/endpoints/", requireAuth(&handler.EndpointsHandler{Store: st}))
+
+	secretsHandler := &handler.SecretsHandler{Store: st}
+	mux.Handle("/endpoints/", requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/secrets") {
+			secretsHandler.ServeHTTP(w, r)
+		} else {
+			(&handler.EndpointsHandler{Store: st}).ServeHTTP(w, r)
+		}
+	})))
 
 	// Inbox: public but rate limited
 	inboxHandler := &handler.InboxHandler{
