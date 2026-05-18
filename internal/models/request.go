@@ -11,6 +11,8 @@ type CapturedRequest struct {
 	BodySize   int               `json:"body_size"`
 	RemoteIP   string            `json:"remote_ip"`
 	ReceivedAt time.Time         `json:"received_at"`
+	Verified   string            `json:"verified"` // "verified", "failed", "unverified"
+	Provider   string            `json:"provider"` // which provider matched
 }
 
 type Endpoint struct {
@@ -54,4 +56,19 @@ type MagicLink struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Used      bool      `json:"used"`
+}
+
+type WebhookSecret struct {
+	ID         string    `json:"id"`
+	EndpointID string    `json:"endpoint_id"`
+	Provider   string    `json:"provider"`
+	Secret     string    `json:"-"` // never serialise the secret to JSON
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// VerificationResult is stored with each captured request
+type VerificationResult struct {
+	Status   string `json:"status"`   // "verified", "failed", "unverified"
+	Provider string `json:"provider"` // which provider verified it
+	Reason   string `json:"reason"`   // human-readable explanation
 }
