@@ -3,6 +3,7 @@ import { MetaBar } from './MetaBar'
 import { HeadersTable } from './HeadersTable'
 import { BodyViewer } from './BodyViewer'
 import { ReplayPanel } from '../replay/ReplayPanel'
+import { SecretManager } from '../endpoints/SecretManager'
 
 interface Props {
   request: CapturedRequest
@@ -34,6 +35,13 @@ export function RequestDetail({ request }: Props) {
       <Section title="Replay">
         <ReplayPanel request={request} />
       </Section>
+      {request.session_id && (
+      <Section title="Verification">
+        <div className="px-6 py-4">
+          <SecretManager endpointId={request.session_id} />
+        </div>
+      </Section>
+)}
     </div>
   )
 }
