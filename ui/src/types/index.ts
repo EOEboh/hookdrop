@@ -20,10 +20,12 @@ export interface CapturedRequest {
   session_id: string
   method: string
   headers: Record<string, string>
-  body: string        // base64 when binary, UTF-8 string otherwise
+  body: string
   body_size: number
   remote_ip: string
   received_at: string
+  verified: VerificationStatus
+  provider: string
 }
 
 export interface ReplayRequest {
@@ -48,5 +50,15 @@ export interface Endpoint {
   description?: string
   created_at: string
 }
+
+export interface WebhookSecret {
+  id: string
+  endpoint_id: string
+  provider: 'stripe' | 'paystack' | 'github' | 'generic'
+  created_at: string
+  // secret value is never returned from the API
+}
+
+export type VerificationStatus = 'verified' | 'failed' | 'unverified'
 
 export type ConnectionStatus = 'connecting' | 'live' | 'disconnected'

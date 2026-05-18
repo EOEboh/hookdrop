@@ -1,6 +1,7 @@
 import type {
   CapturedRequest, Endpoint, ReplayRequest,
-  ReplayResponse, Session
+  ReplayResponse, Session,
+  WebhookSecret
 } from '../types'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
@@ -101,4 +102,32 @@ checkSlug(slug: string): Promise<{ available: boolean }> {
     headers: { ...authHeaders() },
   }).then(handle<{ available: boolean }>)
 },
+
+getSecrets(endpointId: string): Promise<WebhookSecret[]> {
+  return fetch(`${BASE_URL}/endpoints/${endpointId}/secrets`, {
+    headers: { ...authHeaders() },
+  }).then(handle<WebhookSecret[]>)
+},
+
+saveSecret(endpointId: string, data: {
+  provider: string
+  secret: string
+}): Promise<WebhookSecret> {
+  return fetch(`${BASE_URL}/endpoints/${endpointId}/secrets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(data),
+  }).then(handle<WebhookSecret>)
+},
+
+deleteSecret(endpointId: string, secretId: string): Promise<void> {
+  return fetch(`${BASE_URL}/endpoints/${endpointId}/secrets/${secretId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  }).then(res => { if (!res.ok) throw new Error(`${res.status}`) })
+},
 }
+
