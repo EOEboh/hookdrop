@@ -1,6 +1,7 @@
 import type { CapturedRequest } from '../../types'
 import { MethodBadge } from '../ui/MethodBadge'
 import { timeAgo, formatBytes } from '../../lib/format'
+import { VerificationBadge } from '../ui/VerificationBadge'
 
 interface Props {
   request: CapturedRequest
@@ -28,6 +29,11 @@ export function RequestItem({ request, selected, onClick }: Props) {
           <span className="text-xs text-zinc-700">·</span>
           <span className="text-xs text-zinc-600">{formatBytes(request.body_size)}</span>
         </div>
+        {request.verified && request.verified !== 'unverified' && (
+        <div className="mt-1">
+          <VerificationBadge status={request.verified} provider={request.provider} />
+        </div>
+)}
       </div>
     </button>
   )
