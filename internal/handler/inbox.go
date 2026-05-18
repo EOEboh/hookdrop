@@ -10,6 +10,7 @@ import (
 
 	"github.com/EOEboh/hookdrop/internal/models"
 	"github.com/EOEboh/hookdrop/internal/store"
+	"github.com/EOEboh/hookdrop/internal/verify"
 	"github.com/google/uuid"
 )
 
@@ -28,8 +29,8 @@ func (h *InboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var sessionID string
+	var endpointID string // only set for named endpoints
 
-	// First check if it's a named endpoint slug
 	ep, err := h.Store.GetEndpointBySlug(identifier)
 	if err != nil {
 		http.Error(w, "store error", http.StatusInternalServerError)
@@ -37,10 +38,9 @@ func (h *InboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ep != nil {
-		// Named endpoint: use its ID as the session identifier
 		sessionID = ep.ID
+		endpointID = ep.ID
 	} else {
-		// Fall back to temporary session lookup
 		if !h.Store.SessionExists(identifier) {
 			http.Error(w, "endpoint not found", http.StatusNotFound)
 			return
@@ -69,6 +69,21 @@ func (h *InboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		BodySize:   len(body),
 		RemoteIP:   extractIP(r),
 		ReceivedAt: time.Now().UTC(),
+		Verified:   "unverified",
+	}
+
+	// Verify signature if this is a named endpoint with a secret configured
+	if endpointID != "" {
+		secrets, err := h.Store.GetWebhookSecretsWithValues(endpointID)
+		if err != nil {
+			log.Printf("failed to fetch secrets for endpoint %s: %v", endpointID, err)
+		} else if len(secrets) > 0 {
+			result := verify.Verify(captured, secrets)
+			captured.Verified = result.Status
+			captured.Provider = result.Provider
+			log.Printf("verification: endpoint=%s status=%s provider=%s reason=%s",
+				endpointID, result.Status, result.Provider, result.Reason)
+		}
 	}
 
 	if err := h.Store.SaveRequest(captured); err != nil {
@@ -89,7 +104,6 @@ func (h *InboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// extractIP handles X-Forwarded-For from proxies/load balancers
 func extractIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		return strings.Split(fwd, ",")[0]

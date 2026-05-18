@@ -144,8 +144,8 @@ func (s *Store) migrate() error {
 	}{
 		{"sessions", "user_id", "TEXT REFERENCES users(id)"},
 		{"requests", "endpoint_id", "TEXT REFERENCES endpoints(id)"},
-		{"requests", "verified",  "TEXT"},   -- "verified", "failed", "unverified"
-		{"requests", "provider",  "TEXT"},   -- "stripe", "paystack", "github", "generic"
+		{"requests", "verified", "TEXT DEFAULT 'unverified'"},
+		{"requests", "provider", "TEXT DEFAULT ''"},
 	}
 
 	for _, m := range migrations {
@@ -440,77 +440,86 @@ func (s *Store) IdentifierExists(id string) bool {
 }
 
 func (s *Store) SaveWebhookSecret(secret *models.WebhookSecret) error {
-    _, err := s.db.Exec(`
+	_, err := s.db.Exec(`
         INSERT INTO webhook_secrets (id, endpoint_id, provider, secret, created_at)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(endpoint_id, provider)
         DO UPDATE SET secret = excluded.secret`,
-        secret.ID, secret.EndpointID, secret.Provider,
-        secret.Secret, secret.CreatedAt,
-    )
-    return err
+		secret.ID, secret.EndpointID, secret.Provider,
+		secret.Secret, secret.CreatedAt,
+	)
+	return err
 }
 
 func (s *Store) GetWebhookSecrets(endpointID string) ([]*models.WebhookSecret, error) {
-    rows, err := s.db.Query(`
+	rows, err := s.db.Query(`
         SELECT id, endpoint_id, provider, created_at
         FROM webhook_secrets
         WHERE endpoint_id = ?
         ORDER BY created_at DESC`, endpointID,
-    )
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    var results []*models.WebhookSecret
-    for rows.Next() {
-        ws := &models.WebhookSecret{}
-        if err := rows.Scan(&ws.ID, &ws.EndpointID, &ws.Provider, &ws.CreatedAt); err != nil {
-            return nil, err
-        }
-        results = append(results, ws)
-    }
-    return results, rows.Err()
+	var results []*models.WebhookSecret
+	for rows.Next() {
+		ws := &models.WebhookSecret{}
+		if err := rows.Scan(&ws.ID, &ws.EndpointID, &ws.Provider, &ws.CreatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, ws)
+	}
+	return results, rows.Err()
 }
 
 // GetWebhookSecretsWithValues returns secrets including the actual secret value
 // Only used internally for verification: never exposed via API
 func (s *Store) GetWebhookSecretsWithValues(endpointID string) ([]*models.WebhookSecret, error) {
-    rows, err := s.db.Query(`
+	rows, err := s.db.Query(`
         SELECT id, endpoint_id, provider, secret, created_at
         FROM webhook_secrets
         WHERE endpoint_id = ?`, endpointID,
-    )
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    var results []*models.WebhookSecret
-    for rows.Next() {
-        ws := &models.WebhookSecret{}
-        if err := rows.Scan(&ws.ID, &ws.EndpointID, &ws.Provider, &ws.Secret, &ws.CreatedAt); err != nil {
-            return nil, err
-        }
-        results = append(results, ws)
-    }
-    return results, rows.Err()
+	var results []*models.WebhookSecret
+	for rows.Next() {
+		ws := &models.WebhookSecret{}
+		if err := rows.Scan(&ws.ID, &ws.EndpointID, &ws.Provider, &ws.Secret, &ws.CreatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, ws)
+	}
+	return results, rows.Err()
 }
 
 func (s *Store) DeleteWebhookSecret(id, endpointID string) error {
-    _, err := s.db.Exec(
-        `DELETE FROM webhook_secrets WHERE id = ? AND endpoint_id = ?`,
-        id, endpointID,
-    )
-    return err
+	_, err := s.db.Exec(
+		`DELETE FROM webhook_secrets WHERE id = ? AND endpoint_id = ?`,
+		id, endpointID,
+	)
+	return err
 }
 
 // UpdateRequestVerification stores the verification result on a captured request
 func (s *Store) UpdateRequestVerification(requestID, status, provider string) error {
-    _, err := s.db.Exec(
-        `UPDATE requests SET verified = ?, provider = ? WHERE id = ?`,
-        status, provider, requestID,
-    )
-    return err
+	_, err := s.db.Exec(
+		`UPDATE requests SET verified = ?, provider = ? WHERE id = ?`,
+		status, provider, requestID,
+	)
+	return err
+}
+
+func (s *Store) EndpointBelongsToUser(endpointID, userID string) bool {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM endpoints WHERE id = ? AND user_id = ?`,
+		endpointID, userID,
+	).Scan(&count)
+	return err == nil && count > 0
 }
