@@ -191,22 +191,24 @@ func (s *Store) SaveRequest(req *models.CapturedRequest) error {
 
 	_, err = s.db.Exec(
 		`INSERT INTO requests
-            (id, session_id, method, headers, body, body_size, remote_ip, received_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, session_id, method, headers, body, body_size, remote_ip, received_at, verified, provider)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		req.ID, req.SessionID, req.Method,
 		string(headersJSON), req.Body, req.BodySize,
 		req.RemoteIP, req.ReceivedAt,
+		req.Verified, req.Provider,
 	)
 	return err
 }
 
 func (s *Store) GetRequests(sessionID string, limit int) ([]*models.CapturedRequest, error) {
 	rows, err := s.db.Query(
-		`SELECT id, session_id, method, headers, body, body_size, remote_ip, received_at
-         FROM requests
-         WHERE session_id = ?
-         ORDER BY received_at DESC
-         LIMIT ?`,
+		`SELECT id, session_id, method, headers, body, body_size, remote_ip, received_at,
+		        COALESCE(verified, 'unverified'), COALESCE(provider, '')
+		 FROM requests
+		 WHERE session_id = ?
+		 ORDER BY received_at DESC
+		 LIMIT ?`,
 		sessionID, limit,
 	)
 	if err != nil {
@@ -223,6 +225,7 @@ func (s *Store) GetRequests(sessionID string, limit int) ([]*models.CapturedRequ
 			&req.ID, &req.SessionID, &req.Method,
 			&headersJSON, &req.Body, &req.BodySize,
 			&req.RemoteIP, &req.ReceivedAt,
+			&req.Verified, &req.Provider,
 		)
 		if err != nil {
 			return nil, err
@@ -242,15 +245,17 @@ func (s *Store) GetRequest(id string) (*models.CapturedRequest, error) {
 	var headersJSON string
 
 	err := s.db.QueryRow(
-		`SELECT id, session_id, method, headers, body, body_size, remote_ip, received_at
-         FROM requests WHERE id = ?`, id,
+		`SELECT id, session_id, method, headers, body, body_size, remote_ip, received_at,
+		        COALESCE(verified, 'unverified'), COALESCE(provider, '')
+		 FROM requests WHERE id = ?`, id,
 	).Scan(
 		&req.ID, &req.SessionID, &req.Method,
 		&headersJSON, &req.Body, &req.BodySize,
 		&req.RemoteIP, &req.ReceivedAt,
+		&req.Verified, &req.Provider,
 	)
 	if err == sql.ErrNoRows {
-		return nil, nil // not found, not an error
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
