@@ -59,6 +59,20 @@ export interface WebhookSecret {
   // secret value is never returned from the API
 }
 
+export interface RequestFilters {
+  search: string
+  method: string       // '' = all
+  verified: string     // '' = all
+  range: string        // '' | '1h' | '24h' | '7d'
+}
+
+export const DEFAULT_FILTERS: RequestFilters = {
+  search:   '',
+  method:   '',
+  verified: '',
+  range:    '',
+}
+
 export type VerificationStatus = 'verified' | 'failed' | 'unverified'
 
 export type ConnectionStatus = 'connecting' | 'live' | 'disconnected'

@@ -1,6 +1,6 @@
 import type {
   CapturedRequest, Endpoint, ReplayRequest,
-  ReplayResponse, Session,
+  ReplayResponse, RequestFilters, Session,
   WebhookSecret
 } from '../types'
 
@@ -44,11 +44,21 @@ export const api = {
     }).then(handle<Session>)
   },
 
-  getRequests(sessionId: string): Promise<CapturedRequest[]> {
-    return fetch(`${BASE_URL}/requests/${sessionId}`, {
-      headers: { ...authHeaders() },
-    }).then(handle<CapturedRequest[]>)
-  },
+  getRequests(sessionId: string, filters?: Partial<RequestFilters>): Promise<CapturedRequest[]> {
+  const params = new URLSearchParams()
+
+  if (filters?.search)   params.set('search',   filters.search)
+  if (filters?.method)   params.set('method',   filters.method)
+  if (filters?.verified) params.set('verified', filters.verified)
+  if (filters?.range)    params.set('range',    filters.range)
+
+  const qs = params.toString()
+  const url = `${BASE_URL}/requests/${sessionId}${qs ? `?${qs}` : ''}`
+
+  return fetch(url, {
+    headers: { ...authHeaders() },
+  }).then(handle<CapturedRequest[]>)
+},
 
   replay(payload: ReplayRequest): Promise<ReplayResponse> {
     return fetch(`${BASE_URL}/replay`, {
