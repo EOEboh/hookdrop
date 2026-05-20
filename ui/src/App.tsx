@@ -7,7 +7,7 @@ import { MainPanel } from './components/layout/MainPanel'
 import { LoginPage } from './pages/LoginPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { Spinner } from './components/ui/Spinner'
-import type { CapturedRequest, Endpoint } from './types'
+import { DEFAULT_FILTERS, type CapturedRequest, type Endpoint, type RequestFilters } from './types'
 
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth()
@@ -33,23 +33,28 @@ export default function App() {
 function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const { session, loading, error, resetSession } = useSession()
 
-  // Active feed source — null means use the temporary session
+  // Active feed source: null means use the temporary session
   const [activeEndpoint, setActiveEndpoint] = useState<Endpoint | null>(null)
   const [selectedRequest, setSelectedRequest] = useState<CapturedRequest | null>(null)
 
-  // Single feed — switches between temp session and named endpoint
+
+  const [filters, setFilters] = useState<RequestFilters>(DEFAULT_FILTERS)
+
+  // Single feed: switches between temp session and named endpoint
   const activeFeedId = activeEndpoint ? activeEndpoint.id : session?.id ?? null
-  const { requests, status, clearRequests } = useRequestFeed(activeFeedId)
+  const { requests, status, clearRequests } = useRequestFeed(activeFeedId, filters)
 
   // When switching feed source, clear the selected request
   function handleSelectEndpoint(ep: Endpoint) {
     setActiveEndpoint(ep)
     setSelectedRequest(null)
+    setFilters(DEFAULT_FILTERS)
   }
 
   function handleSelectTemporary() {
     setActiveEndpoint(null)
     setSelectedRequest(null)
+    setFilters(DEFAULT_FILTERS)
   }
 
   if (loading) {
