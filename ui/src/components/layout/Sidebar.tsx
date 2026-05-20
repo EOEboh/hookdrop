@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { CapturedRequest, ConnectionStatus, Endpoint, Session } from '../../types'
+import type { CapturedRequest, ConnectionStatus, Endpoint, RequestFilters, Session } from '../../types'
 import { SessionBar } from '../session/SessionBar'
 import { RequestList } from '../feed/RequestList'
 import { EndpointList } from '../endpoints/EndpointList'
@@ -18,7 +18,10 @@ interface Props {
   onSelectEndpoint: (ep: Endpoint) => void
   onBackToTemporary: () => void
   selectedEndpointId: string | null
-  activeEndpoint: Endpoint | null      
+  activeEndpoint: Endpoint | null 
+  filters: RequestFilters
+onFilterChange: (f: RequestFilters) => void
+totalRequestCount: number       
 }
 
 type Tab = 'session' | 'endpoints'
@@ -26,9 +29,9 @@ type Tab = 'session' | 'endpoints'
 export function Sidebar({
   session, status, requests, selectedId,
   onSelect, onReset, onClear, onLogout,
-  onSelectEndpoint, selectedEndpointId, activeEndpoint, onBackToTemporary
+  onSelectEndpoint, selectedEndpointId, activeEndpoint, onBackToTemporary, filters, onFilterChange, totalRequestCount,
 }: Props) {
-  const [tab, setTab]           = useState<Tab>('session')
+  const [tab, setTab] = useState<Tab>('session')
   const [showModal, setShowModal] = useState(false)
   const { endpoints, createEndpoint, deleteEndpoint } = useEndpoints()
 
@@ -82,10 +85,14 @@ export function Sidebar({
         </button>
       </div>
     )}
+
     <RequestList
       requests={requests}
+      allCount={totalRequestCount}
       selectedId={selectedId}
       onSelect={onSelect}
+      filters={filters}
+      onFilterChange={onFilterChange}
     />
   </>
 ) : (
@@ -121,11 +128,15 @@ export function Sidebar({
             </span>
           </div>
         )}
-        <RequestList
-          requests={requests}
-          selectedId={selectedId}
-          onSelect={onSelect}
-        />
+
+      <RequestList
+        requests={requests}
+        allCount={totalRequestCount}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        filters={filters}
+        onFilterChange={onFilterChange}
+      />
       </>
     ) : (
       <div className="flex-1 overflow-y-auto">

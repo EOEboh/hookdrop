@@ -42,7 +42,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
   // Single feed: switches between temp session and named endpoint
   const activeFeedId = activeEndpoint ? activeEndpoint.id : session?.id ?? null
-  const { requests, status, clearRequests } = useRequestFeed(activeFeedId, filters)
+  const { requests, status, clearRequests, totalCount, } = useRequestFeed(activeFeedId, filters)
 
   // When switching feed source, clear the selected request
   function handleSelectEndpoint(ep: Endpoint) {
@@ -97,6 +97,9 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         onBackToTemporary={handleSelectTemporary}
         selectedEndpointId={activeEndpoint?.id ?? null}
         activeEndpoint={activeEndpoint}
+        filters={filters}
+        onFilterChange={setFilters}
+        totalRequestCount={totalCount}
       />
       <MainPanel selected={selectedRequest} />
     </div>

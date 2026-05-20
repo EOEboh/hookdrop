@@ -6,23 +6,31 @@ export function useRequestFeed(
   sessionId: string | null,
   filters: RequestFilters,
 ) {
-  const [requests, setRequests] = useState<CapturedRequest[]>([])
-  const [status, setStatus]     = useState<ConnectionStatus>('connecting')
-  const esRef                   = useRef<EventSource | null>(null)
+  const [requests, setRequests]   = useState<CapturedRequest[]>([])
+  const [status, setStatus]       = useState<ConnectionStatus>('connecting')
+  const [totalCount, setTotalCount] = useState(0)
+  const esRef = useRef<EventSource | null>(null)
 
-  // Re-fetch history whenever filters change
   const fetchHistory = useCallback(async () => {
     if (!sessionId) return
     try {
       const history = await api.getRequests(sessionId, filters)
       setRequests(history ?? [])
+
+      const isFiltered = filters.search || filters.method || filters.verified || filters.range
+      if (isFiltered) {
+        const all = await api.getRequests(sessionId, {
+          search: '', method: '', verified: '', range: '',
+        })
+        setTotalCount(all?.length ?? 0)
+      } else {
+        setTotalCount(history?.length ?? 0)
+      }
     } catch {
       // Non-fatal
     }
   }, [sessionId, filters])
 
-  // SSE connection: only depends on sessionId, not filters
-  // Live events arrive regardless of filter state
   useEffect(() => {
     if (!sessionId) return
 
@@ -41,8 +49,9 @@ export function useRequestFeed(
       if (cancelled) return
       try {
         const incoming: CapturedRequest = JSON.parse(e.data)
-        // Only prepend if the incoming request matches active filters
-        // This keeps the live feed consistent with what's shown
+
+        setTotalCount(prev => prev + 1)
+
         setRequests(prev => {
           if (passesClientFilter(incoming, filters)) {
             return [incoming, ...prev]
@@ -63,9 +72,8 @@ export function useRequestFeed(
       esRef.current?.close()
       setStatus('connecting')
     }
-  }, [sessionId]) // SSE reconnects only on session change
+  }, [sessionId])
 
-  // Re-fetch history when filters change without reconnecting SSE
   useEffect(() => {
     if (!sessionId) return
     fetchHistory()
@@ -73,13 +81,12 @@ export function useRequestFeed(
 
   function clearRequests() {
     setRequests([])
+    setTotalCount(0)
   }
 
-  return { requests, status, clearRequests }
+  return { requests, status, clearRequests, totalCount }
 }
 
-// Client-side filter check for incoming SSE events
-// Mirrors the server-side filter logic so live events are consistent
 function passesClientFilter(req: CapturedRequest, filters: RequestFilters): boolean {
   if (filters.method && req.method !== filters.method) return false
 
