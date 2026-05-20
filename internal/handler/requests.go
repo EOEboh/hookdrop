@@ -27,14 +27,14 @@ func (h *RequestsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requests, err := h.Store.GetRequests(sessionID, 100)
+	// Parse filters from query string
+	filter := models.FilterFromQuery(r.URL.Query())
 
+	requests, err := h.Store.GetRequests(sessionID, filter)
 	if err != nil {
 		http.Error(w, "failed to fetch requests", http.StatusInternalServerError)
 		return
 	}
-
-	// Always return an array, never null
 	if requests == nil {
 		requests = []*models.CapturedRequest{}
 	}

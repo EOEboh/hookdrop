@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/EOEboh/hookdrop/internal/models"
@@ -201,16 +202,52 @@ func (s *Store) SaveRequest(req *models.CapturedRequest) error {
 	return err
 }
 
-func (s *Store) GetRequests(sessionID string, limit int) ([]*models.CapturedRequest, error) {
-	rows, err := s.db.Query(
-		`SELECT id, session_id, method, headers, body, body_size, remote_ip, received_at,
-		        COALESCE(verified, 'unverified'), COALESCE(provider, '')
-		 FROM requests
-		 WHERE session_id = ?
-		 ORDER BY received_at DESC
-		 LIMIT ?`,
-		sessionID, limit,
+func (s *Store) GetRequests(sessionID string, filter models.RequestFilter) ([]*models.CapturedRequest, error) {
+	// Build WHERE clauses dynamically based on active filters
+	conditions := []string{"session_id = ?"}
+	args := []interface{}{sessionID}
+
+	if filter.Method != "" {
+		conditions = append(conditions, "method = ?")
+		args = append(args, filter.Method)
+	}
+
+	if filter.Verified != "" {
+		conditions = append(conditions, "COALESCE(verified, 'unverified') = ?")
+		args = append(args, filter.Verified)
+	}
+
+	if !filter.Since.IsZero() {
+		conditions = append(conditions, "received_at >= ?")
+		args = append(args, filter.Since)
+	}
+
+	if filter.Search != "" {
+
+		// SQLite FTS5 is the upgrade path when this becomes slow
+		conditions = append(conditions, "CAST(body AS TEXT) LIKE ?")
+		args = append(args, "%"+filter.Search+"%")
+	}
+
+	limit := filter.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, session_id, method, headers, body, body_size,
+		       remote_ip, received_at,
+		       COALESCE(verified, 'unverified'),
+		       COALESCE(provider, '')
+		FROM requests
+		WHERE %s
+		ORDER BY received_at DESC
+		LIMIT ?`,
+		strings.Join(conditions, " AND "),
 	)
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -230,11 +267,9 @@ func (s *Store) GetRequests(sessionID string, limit int) ([]*models.CapturedRequ
 		if err != nil {
 			return nil, err
 		}
-
 		if err := json.Unmarshal([]byte(headersJSON), &req.Headers); err != nil {
 			return nil, fmt.Errorf("unmarshal headers: %w", err)
 		}
-
 		results = append(results, req)
 	}
 	return results, rows.Err()
@@ -268,7 +303,7 @@ func (s *Store) GetRequest(id string) (*models.CapturedRequest, error) {
 }
 
 func (s *Store) GetOrCreateUser(email string) (*models.User, error) {
-	// Try fetching existing user first
+	// Fetch existing user first
 	user := &models.User{}
 	err := s.db.QueryRow(
 		`SELECT id, email, created_at FROM users WHERE email = ?`, email,
@@ -306,7 +341,7 @@ func (s *Store) CreateMagicLink(userID string) (*models.MagicLink, error) {
 	link := &models.MagicLink{
 		ID:        uuid.NewString(),
 		UserID:    userID,
-		Token:     uuid.NewString() + uuid.NewString(), // long token — harder to brute force
+		Token:     uuid.NewString() + uuid.NewString(),
 		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
 		Used:      false,
 	}
