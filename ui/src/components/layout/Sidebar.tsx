@@ -5,6 +5,7 @@ import { RequestList } from '../feed/RequestList'
 import { EndpointList } from '../endpoints/EndpointList'
 import { CreateEndpointModal } from '../endpoints/CreateEndpointModal'
 import { useEndpoints } from '../../hooks/useEndpoints'
+import { PlusIcon } from '../ui/icons'
 
 interface Props {
   session: Session
@@ -100,9 +101,10 @@ export function Sidebar({
     <div className="p-3 border-b border-zinc-800">
       <button
         onClick={() => setShowModal(true)}
-        className="w-full py-2 rounded-lg border border-dashed border-zinc-700 hover:border-emerald-500 text-xs text-zinc-500 hover:text-emerald-400 transition-colors"
+        className="w-full py-2.5 rounded-lg border border-dashed border-zinc-700 hover:border-emerald-500/50 hover:bg-emerald-500/[0.03] text-xs text-zinc-500 hover:text-emerald-400 transition-all flex items-center justify-center gap-2"
       >
-        + New named endpoint
+        <PlusIcon className="w-3.5 h-3.5" />
+        New named endpoint
       </button>
     </div>
 

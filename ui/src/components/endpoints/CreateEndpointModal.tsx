@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Endpoint } from '../../types'
+import { Portal } from '../ui/Portal'
 
 interface Props {
   onClose: () => void
@@ -47,6 +48,7 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
@@ -125,5 +127,6 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
         </div>
       </div>
     </div>
+    </Portal>
   )
 }
