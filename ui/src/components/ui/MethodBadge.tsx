@@ -6,10 +6,23 @@ const colours: Record<string, string> = {
   DELETE: 'bg-red-500/10 text-red-400 ring-red-500/20',
 }
 
-export function MethodBadge({ method }: { method: string }) {
+const sizeClasses = {
+  sm: 'px-1.5 py-0.5 text-[10px]',
+  md: 'px-2 py-0.5 text-xs',
+  lg: 'px-3 py-1.5 text-sm',
+}
+
+interface Props {
+  method: string
+  size?: 'sm' | 'md' | 'lg'
+}
+
+export function MethodBadge({ method, size = 'md' }: Props) {
   const cls = colours[method.toUpperCase()] ?? 'bg-zinc-500/10 text-zinc-400 ring-zinc-500/20'
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium ring-1 ${cls}`}>
+    <span
+      className={`inline-flex items-center rounded font-mono font-semibold ring-1 tracking-wide ${cls} ${sizeClasses[size]}`}
+    >
       {method.toUpperCase()}
     </span>
   )
