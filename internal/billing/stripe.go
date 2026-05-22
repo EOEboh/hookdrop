@@ -6,13 +6,12 @@ import (
 	"fmt"
 
 	"github.com/stripe/stripe-go/v76"
-	"github.com/stripe/stripe-go/v76/billingportal/session"
-	"github.com/stripe/stripe-go/v76/checkout/session"
+	portalsession "github.com/stripe/stripe-go/v76/billingportal/session"
+	checkoutsession "github.com/stripe/stripe-go/v76/checkout/session"
+	stripesubscription "github.com/stripe/stripe-go/v76/subscription"
 	"github.com/stripe/stripe-go/v76/webhook"
 )
 
-// Price IDs from your Stripe dashboard
-// Create these in Stripe and paste the IDs here
 type StripePrices struct {
 	ProMonthly string
 	ProAnnual  string
@@ -41,10 +40,7 @@ func (p *StripeProvider) CreateCheckout(ctx context.Context, params CheckoutPara
 		priceID = p.Prices.ProAnnual
 	}
 
-	// Trial period — 14 days
-	trialDays := int64(14)
-
-	s, err := session.New(&stripe.CheckoutSessionParams{
+	s, err := checkoutsession.New(&stripe.CheckoutSessionParams{
 		CustomerEmail: stripe.String(params.Email),
 		Mode:          stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		SuccessURL:    stripe.String(params.SuccessURL + "?session_id={CHECKOUT_SESSION_ID}"),
@@ -59,7 +55,7 @@ func (p *StripeProvider) CreateCheckout(ctx context.Context, params CheckoutPara
 			},
 		},
 		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
-			TrialPeriodDays: stripe.Int64(trialDays),
+			TrialPeriodDays: stripe.Int64(14),
 			Metadata: map[string]string{
 				"user_id": params.UserID,
 			},
@@ -76,7 +72,8 @@ func (p *StripeProvider) CreateCheckout(ctx context.Context, params CheckoutPara
 }
 
 func (p *StripeProvider) CancelSubscription(ctx context.Context, subID string) error {
-	_, err := sub.Update(subID, &stripe.SubscriptionParams{
+	// Cancel at period end — user keeps access until their billing cycle ends
+	_, err := stripesubscription.Update(subID, &stripe.SubscriptionParams{
 		CancelAtPeriodEnd: stripe.Bool(true),
 	})
 	return err
@@ -88,7 +85,7 @@ func (p *StripeProvider) GetPortalURL(ctx context.Context, customerID, returnURL
 		ReturnURL: stripe.String(returnURL),
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("stripe portal: %w", err)
 	}
 	return s.URL, nil
 }
@@ -103,25 +100,55 @@ func (p *StripeProvider) HandleWebhook(payload []byte, signature string) (*Webho
 	case "customer.subscription.created",
 		"customer.subscription.updated",
 		"customer.subscription.deleted":
+
 		var sub stripe.Subscription
 		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unmarshal subscription: %w", err)
 		}
+
+		// Customer field on Subscription is an expandable object
+		// It may be just an ID string or a full object depending on expansion
+		customerID := ""
+		if sub.Customer != nil {
+			customerID = sub.Customer.ID
+		}
+
+		interval := ""
+		plan := "free"
+		if len(sub.Items.Data) > 0 {
+			item := sub.Items.Data[0]
+			if item.Price != nil {
+				if item.Price.Recurring != nil {
+					interval = string(item.Price.Recurring.Interval)
+				}
+				plan = p.planFromPriceID(item.Price.ID)
+			}
+		}
+
 		return &WebhookEvent{
-			Type:           normaliseStripeEvent(event.Type),
-			CustomerID:     sub.Customer.ID,
+			Type:           normaliseStripeEvent(string(event.Type)),
+			CustomerID:     customerID,
 			SubscriptionID: sub.ID,
-			Plan:           planFromStripePrices(sub, p.Prices),
+			Plan:           plan,
 			Status:         string(sub.Status),
 			Currency:       string(sub.Currency),
-			Interval:       string(sub.Items.Data[0].Price.Recurring.Interval),
+			Interval:       interval,
 			PeriodEnd:      sub.CurrentPeriodEnd,
 			TrialEnd:       sub.TrialEnd,
 			CancelAtEnd:    sub.CancelAtPeriodEnd,
 			UserID:         sub.Metadata["user_id"],
 		}, nil
 	}
-	return nil, nil // unhandled event type — not an error
+
+	// Unhandled event type — not an error, just ignore
+	return nil, nil
+}
+
+func (p *StripeProvider) planFromPriceID(priceID string) string {
+	if priceID == p.Prices.ProMonthly || priceID == p.Prices.ProAnnual {
+		return "pro"
+	}
+	return "free"
 }
 
 func normaliseStripeEvent(t string) string {
@@ -134,15 +161,4 @@ func normaliseStripeEvent(t string) string {
 		return "subscription.canceled"
 	}
 	return t
-}
-
-func planFromStripePrices(sub stripe.Subscription, prices StripePrices) string {
-	if len(sub.Items.Data) == 0 {
-		return "free"
-	}
-	priceID := sub.Items.Data[0].Price.ID
-	if priceID == prices.ProMonthly || priceID == prices.ProAnnual {
-		return "pro"
-	}
-	return "free"
 }
