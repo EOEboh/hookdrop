@@ -131,6 +131,40 @@ func (s *Store) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_webhook_secrets_endpoint
     ON webhook_secrets(endpoint_id);
+
+	CREATE TABLE IF NOT EXISTS subscriptions (
+    id                  TEXT PRIMARY KEY,
+    user_id             TEXT UNIQUE NOT NULL,
+    plan                TEXT NOT NULL DEFAULT 'free',
+    provider            TEXT,            -- 'stripe' or 'paystack'
+    provider_customer_id TEXT,           -- Stripe customer ID or Paystack customer code
+    provider_sub_id     TEXT,            -- Stripe subscription ID or Paystack subscription code
+    status              TEXT NOT NULL DEFAULT 'active',  -- active, past_due, canceled, trialing
+    current_period_end  DATETIME,
+    trial_end           DATETIME,
+    cancel_at_period_end INTEGER DEFAULT 0,
+    currency            TEXT DEFAULT 'usd',
+    interval            TEXT DEFAULT 'month',  -- month or year
+    created_at          DATETIME NOT NULL,
+    updated_at          DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+	CREATE TABLE IF NOT EXISTS billing_events (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT,
+    provider     TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    payload      TEXT NOT NULL,
+    processed    INTEGER DEFAULT 0,
+    created_at   DATETIME NOT NULL
+);
+
+	CREATE INDEX IF NOT EXISTS idx_subscriptions_user
+    ON subscriptions(user_id);
+
+	CREATE INDEX IF NOT EXISTS idx_subscriptions_provider_sub
+    ON subscriptions(provider_sub_id);
     `
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -147,6 +181,8 @@ func (s *Store) migrate() error {
 		{"requests", "endpoint_id", "TEXT REFERENCES endpoints(id)"},
 		{"requests", "verified", "TEXT DEFAULT 'unverified'"},
 		{"requests", "provider", "TEXT DEFAULT ''"},
+		{"users", "country", "TEXT"},
+		{"users", "billing_email", "TEXT"},
 	}
 
 	for _, m := range migrations {
