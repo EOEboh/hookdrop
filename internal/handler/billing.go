@@ -14,22 +14,24 @@ import (
 )
 
 type BillingHandler struct {
-	Store    *store.Store
-	Stripe   billing.Provider
-	Paystack billing.Provider
-	AppURL   string
+	Store        *store.Store
+	LemonSqueezy billing.Provider
+	Paystack     billing.Provider
+	AppURL       string
 }
 
+// getProvider routes to the correct billing provider based on currency
 func (h *BillingHandler) getProvider(currency string) billing.Provider {
 	if currency == "ngn" {
 		return h.Paystack
 	}
-	return h.Stripe
+	return h.LemonSqueezy
 }
 
-// GET /billing/subscription: returns current plan + limits
+// GET /billing/subscription
 func (h *BillingHandler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
+
 	sub, err := h.Store.GetSubscription(user.ID)
 	if err != nil {
 		http.Error(w, "store error", http.StatusInternalServerError)
@@ -47,7 +49,7 @@ func (h *BillingHandler) GetSubscription(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// POST /billing/checkout: initiate checkout
+// POST /billing/checkout
 func (h *BillingHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 
@@ -87,7 +89,7 @@ func (h *BillingHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(result)
 }
 
-// POST /billing/portal: get billing portal or management URL
+// POST /billing/portal
 func (h *BillingHandler) GetPortal(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 
@@ -108,25 +110,26 @@ func (h *BillingHandler) GetPortal(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"url": url})
 }
 
-// POST /billing/webhook/stripe: Stripe webhook receiver
-func (h *BillingHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
+// POST /billing/webhook/lemonsqueezy
+func (h *BillingHandler) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 	payload, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "read error", http.StatusBadRequest)
 		return
 	}
 
-	sig := r.Header.Get("Stripe-Signature")
-	event, err := h.Stripe.HandleWebhook(payload, sig)
+	// Lemonsqueezy sends the signature as X-Signature
+	sig := r.Header.Get("X-Signature")
+	event, err := h.LemonSqueezy.HandleWebhook(payload, sig)
 	if err != nil {
-		log.Printf("stripe webhook error: %v", err)
+		log.Printf("lemonsqueezy webhook error: %v", err)
 		http.Error(w, "invalid signature", http.StatusBadRequest)
 		return
 	}
 
 	if event != nil {
 		if err := h.processWebhookEvent(event); err != nil {
-			log.Printf("process stripe event error: %v", err)
+			log.Printf("process lemonsqueezy event error: %v", err)
 		}
 	}
 
@@ -134,7 +137,7 @@ func (h *BillingHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"received": "true"})
 }
 
-// POST /billing/webhook/paystack: Paystack webhook receiver
+// POST /billing/webhook/paystack
 func (h *BillingHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
 	payload, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {

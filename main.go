@@ -58,12 +58,14 @@ func main() {
 	rlCapacity := getEnvFloat("RATE_LIMIT_CAPACITY", 30)
 	rlRefill := getEnvFloat("RATE_LIMIT_REFILL", 5)
 
-	// ── Billing config
-	stripeSecretKey := getEnv("STRIPE_SECRET_KEY", "")
-	stripeWebhookSecret := getEnv("STRIPE_WEBHOOK_SECRET", "")
-	stripePriceMonthly := getEnv("STRIPE_PRICE_PRO_MONTHLY", "")
-	stripePriceAnnual := getEnv("STRIPE_PRICE_PRO_ANNUAL", "")
+	// ── LemonSqueezy config (international users)
+	lsAPIKey := getEnv("LEMONSQUEEZY_API_KEY", "")
+	lsWebhookSecret := getEnv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
+	lsStoreID := getEnv("LEMONSQUEEZY_STORE_ID", "")
+	lsVariantMonthly := getEnv("LEMONSQUEEZY_VARIANT_PRO_MONTHLY", "")
+	lsVariantAnnual := getEnv("LEMONSQUEEZY_VARIANT_PRO_ANNUAL", "")
 
+	// ── Paystack config (African users)
 	paystackSecretKey := getEnv("PAYSTACK_SECRET_KEY", "")
 	paystackWebhookSecret := getEnv("PAYSTACK_WEBHOOK_SECRET", "")
 	paystackPlanMonthly := getEnv("PAYSTACK_PLAN_PRO_MONTHLY", "")
@@ -84,12 +86,13 @@ func main() {
 	mgr.StartCleanup()
 
 	// ── Billing providers
-	stripeProvider := billing.NewStripeProvider(
-		stripeSecretKey,
-		stripeWebhookSecret,
-		billing.StripePrices{
-			ProMonthly: stripePriceMonthly,
-			ProAnnual:  stripePriceAnnual,
+	lemonSqueezyProvider := billing.NewLemonSqueezyProvider(
+		lsAPIKey,
+		lsWebhookSecret,
+		lsStoreID,
+		billing.LemonSqueezyVariants{
+			ProMonthly: lsVariantMonthly,
+			ProAnnual:  lsVariantAnnual,
 		},
 	)
 
@@ -112,10 +115,10 @@ func main() {
 	}
 
 	billingHandler := &handler.BillingHandler{
-		Store:    st,
-		Stripe:   stripeProvider,
-		Paystack: paystackProvider,
-		AppURL:   frontendURL,
+		Store:        st,
+		LemonSqueezy: lemonSqueezyProvider,
+		Paystack:     paystackProvider,
+		AppURL:       frontendURL,
 	}
 
 	secretsHandler := &handler.SecretsHandler{Store: st}
@@ -129,8 +132,8 @@ func main() {
 	mux.HandleFunc("/auth/request", authHandler.RequestLink)
 	mux.HandleFunc("/auth/verify", authHandler.VerifyLink)
 
-	// Billing webhooks — public but verified internally by signature
-	mux.HandleFunc("/billing/webhook/stripe", billingHandler.StripeWebhook)
+	// Billing webhooks — public but signature-verified internally
+	mux.HandleFunc("/billing/webhook/lemonsqueezy", billingHandler.LemonSqueezyWebhook)
 	mux.HandleFunc("/billing/webhook/paystack", billingHandler.PaystackWebhook)
 
 	// Billing — authenticated
