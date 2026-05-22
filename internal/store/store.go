@@ -599,3 +599,85 @@ func (s *Store) EndpointBelongsToUser(endpointID, userID string) bool {
 	).Scan(&count)
 	return err == nil && count > 0
 }
+
+// SUBSCRIPTION/PAYMENT METHODS
+
+func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
+	sub := &models.Subscription{}
+	err := s.db.QueryRow(`
+        SELECT id, user_id, plan, COALESCE(provider,''), 
+               COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
+               status, current_period_end, trial_end,
+               cancel_at_period_end, COALESCE(currency,'usd'),
+               COALESCE(interval,'month'), created_at, updated_at
+        FROM subscriptions WHERE user_id = ?`, userID,
+	).Scan(
+		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
+		&sub.ProviderCustomerID, &sub.ProviderSubID,
+		&sub.Status, &sub.CurrentPeriodEnd, &sub.TrialEnd,
+		&sub.CancelAtPeriodEnd, &sub.Currency, &sub.Interval,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		// Return a default free subscription if none exists
+		return &models.Subscription{
+			UserID:   userID,
+			Plan:     "free",
+			Status:   "active",
+			Currency: "usd",
+		}, nil
+	}
+	return sub, err
+}
+
+func (s *Store) UpsertSubscription(sub *models.Subscription) error {
+	if sub.ID == "" {
+		sub.ID = uuid.NewString()
+	}
+	sub.UpdatedAt = time.Now().UTC()
+
+	_, err := s.db.Exec(`
+        INSERT INTO subscriptions
+            (id, user_id, plan, provider, provider_customer_id, provider_sub_id,
+             status, current_period_end, trial_end, cancel_at_period_end,
+             currency, interval, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            plan                 = excluded.plan,
+            provider             = excluded.provider,
+            provider_customer_id = excluded.provider_customer_id,
+            provider_sub_id      = excluded.provider_sub_id,
+            status               = excluded.status,
+            current_period_end   = excluded.current_period_end,
+            trial_end            = excluded.trial_end,
+            cancel_at_period_end = excluded.cancel_at_period_end,
+            currency             = excluded.currency,
+            interval             = excluded.interval,
+            updated_at           = excluded.updated_at`,
+		sub.ID, sub.UserID, sub.Plan, sub.Provider,
+		sub.ProviderCustomerID, sub.ProviderSubID,
+		sub.Status, sub.CurrentPeriodEnd, sub.TrialEnd,
+		sub.CancelAtPeriodEnd, sub.Currency, sub.Interval,
+		sub.CreatedAt, sub.UpdatedAt,
+	)
+	return err
+}
+
+func (s *Store) CountUserEndpoints(userID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM endpoints WHERE user_id = ?`, userID,
+	).Scan(&count)
+	return count, err
+}
+
+func (s *Store) CountUserRequestsThisMonth(userID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+        SELECT COUNT(*) FROM requests r
+        JOIN endpoints e ON e.id = r.session_id
+        WHERE e.user_id = ?
+        AND r.received_at >= datetime('now', 'start of month')`, userID,
+	).Scan(&count)
+	return count, err
+}
