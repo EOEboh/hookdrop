@@ -7,4 +7,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.42
 )
 
-require github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
+require (
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
+	github.com/stripe/stripe-go/v76 v76.25.0 // indirect
+)
