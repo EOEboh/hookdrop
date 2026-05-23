@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useBilling } from '../../hooks/useBilling'
 
-const PLANS = {
+const PLANS: Record<string, Record<string, { price: string; period: string; total: string | null }>> = {
   usd: {
-    monthly: { price: '$7', period: '/mo', total: null },
-    annual:  { price: '$5.58', period: '/mo', total: 'Billed $67/yr' },
+    month: { price: '$7',     period: '/mo', total: null },
+    year:  { price: '$5.58',  period: '/mo', total: 'Billed $67/yr' },
   },
   ngn: {
-    monthly: { price: '₦3,500', period: '/mo', total: null },
-    annual:  { price: '₦2,800', period: '/mo', total: 'Billed ₦33,600/yr' },
+    month: { price: '₦3,500', period: '/mo', total: null },
+    year:  { price: '₦2,800', period: '/mo', total: 'Billed ₦33,600/yr' },
   },
 }
 
@@ -36,7 +36,7 @@ export function PricingPage() {
   const [loading, setLoading] = useState(false)
   const [showCurrencyHint, setShowCurrencyHint] = useState(true)
 
-  const prices = PLANS[currency][interval]
+const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
 
   async function handleUpgrade() {
     setLoading(true)
