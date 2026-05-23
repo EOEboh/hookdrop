@@ -202,15 +202,22 @@ func (h *BillingHandler) processWebhookEvent(event *billing.WebhookEvent) error 
 func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 
+	log.Printf("VerifyPaystack called: user_id=%s", user.ID)
+
 	var body struct {
 		Reference string `json:"reference"`
 		Plan      string `json:"plan"`
 		Interval  string `json:"interval"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		log.Printf("VerifyPaystack decode error: %v", err)
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
+
+	log.Printf("VerifyPaystack body: reference=%s plan=%s interval=%s",
+		body.Reference, body.Plan, body.Interval)
+
 	if body.Reference == "" {
 		http.Error(w, "reference required", http.StatusBadRequest)
 		return
@@ -218,35 +225,30 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 	ps, ok := h.Paystack.(*billing.PaystackProvider)
 	if !ok {
+		log.Printf("VerifyPaystack: provider type assertion failed")
 		http.Error(w, "provider error", http.StatusInternalServerError)
 		return
 	}
 
-	// Retry up to 3 times with increasing delays
-	// Paystack sometimes takes a moment to fully process subscriptions
+	// result.Data.Plan is RawMessage — accepts both string and object
 	var result struct {
 		Status  bool   `json:"status"`
 		Message string `json:"message"`
 		Data    struct {
-			Status    string `json:"status"`
-			Reference string `json:"reference"`
-			Amount    int    `json:"amount"`
-			Customer  struct {
+			Status   string `json:"status"`
+			Amount   int    `json:"amount"`
+			Customer struct {
 				CustomerCode string `json:"customer_code"`
 				Email        string `json:"email"`
 			} `json:"customer"`
-			Plan struct {
-				PlanCode string `json:"plan_code"`
-				Interval string `json:"interval"`
-			} `json:"plan"`
-			Metadata map[string]interface{} `json:"metadata"`
+			Plan json.RawMessage `json:"plan"`
 		} `json:"data"`
 	}
 
 	var lastErr error
 	delays := []time.Duration{0, 1 * time.Second, 2 * time.Second}
 
-	for _, delay := range delays {
+	for i, delay := range delays {
 		if delay > 0 {
 			time.Sleep(delay)
 		}
@@ -264,45 +266,37 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			log.Printf("VerifyPaystack: attempt %d HTTP error: %v", i+1, err)
 			lastErr = err
 			continue
 		}
 
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			resp.Body.Close()
-			lastErr = err
-			continue
-		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&result)
 		resp.Body.Close()
 
-		// Accept both "success" and subscription activation statuses
-		// For trial subscriptions, amount is 0 but status is still "success"
-		acceptedStatuses := map[string]bool{
-			"success": true,
+		if decodeErr != nil {
+			log.Printf("VerifyPaystack: attempt %d decode error: %v", i+1, decodeErr)
+			lastErr = decodeErr
+			continue
 		}
 
-		if result.Status && acceptedStatuses[result.Data.Status] {
-			break // verified — exit retry loop
+		log.Printf("VerifyPaystack: attempt %d — status=%v data.status=%s customer=%s",
+			i+1, result.Status, result.Data.Status,
+			result.Data.Customer.CustomerCode)
+
+		if result.Status && result.Data.Status == "success" {
+			lastErr = nil
+			break
 		}
 
-		lastErr = fmt.Errorf(
-			"paystack status: %s, message: %s",
-			result.Data.Status, result.Message,
-		)
+		lastErr = fmt.Errorf("paystack: status=%v data.status=%s message=%s",
+			result.Status, result.Data.Status, result.Message)
 	}
 
-	// If all retries failed, log it but still create the subscription
-	// The webhook will correct it if something is genuinely wrong
 	if lastErr != nil {
-		log.Printf(
-			"verify warning for ref %s: %v — proceeding anyway (webhook will confirm)",
-			body.Reference, lastErr,
-		)
+		log.Printf("VerifyPaystack: retries exhausted: %v — proceeding anyway", lastErr)
 	}
 
-	// Upsert subscription regardless of verify result
-	// Payment popup only fires onSuccess for genuine successes
-	// If Paystack's popup said success, we trust it
 	now := time.Now().UTC()
 	var periodEnd *time.Time
 	if body.Interval == "year" {
@@ -315,7 +309,9 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 	customerCode := result.Data.Customer.CustomerCode
 	if customerCode == "" {
+		// Fallback — will be corrected when Paystack fires the webhook
 		customerCode = "paystack_" + body.Reference
+		log.Printf("VerifyPaystack: using fallback customer code for ref=%s", body.Reference)
 	}
 
 	sub := &models.Subscription{
@@ -332,14 +328,16 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		CreatedAt:          now,
 	}
 
+	log.Printf("VerifyPaystack: upserting — user=%s plan=pro customer=%s",
+		user.ID, customerCode)
+
 	if err := h.Store.UpsertSubscription(sub); err != nil {
-		log.Printf("upsert subscription error: %v", err)
+		log.Printf("VerifyPaystack: upsert FAILED: %v", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("subscription activated: user=%s plan=pro interval=%s ref=%s",
-		user.ID, body.Interval, body.Reference)
+	log.Printf("VerifyPaystack: upsert SUCCESS — user=%s is now Pro", user.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

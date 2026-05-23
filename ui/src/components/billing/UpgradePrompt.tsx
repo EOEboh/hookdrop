@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useBilling } from '../../hooks/useBilling'
+import { useBilling } from '../../context/BillingContext'
 
 interface Props {
   feature: string

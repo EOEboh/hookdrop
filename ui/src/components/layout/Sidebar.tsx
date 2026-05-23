@@ -6,7 +6,7 @@ import { EndpointList } from '../endpoints/EndpointList'
 import { CreateEndpointModal } from '../endpoints/CreateEndpointModal'
 import { useEndpoints } from '../../hooks/useEndpoints'
 import { PlusIcon } from '../ui/icons'
-import { useBilling } from '../../hooks/useBilling'
+import { useBilling } from '../../context/BillingContext'
 
 interface Props {
   session: Session
@@ -49,14 +49,14 @@ export function Sidebar({
         </div>
         <div className="flex items-center gap-3">
           <a
-            href="/settings/billing"
+           href="/settings/billing"
             className={`text-xs transition-colors ${
               isPro
                 ? 'text-emerald-500 hover:text-emerald-400'
                 : 'text-zinc-600 hover:text-zinc-400'
             }`}
           >
-            {isPro ? 'Pro' : 'Upgrade'}
+            {isPro ? '⚡ Pro' : 'Upgrade'}
           </a>
           <button
             onClick={onLogout}

@@ -1,6 +1,6 @@
-import {  useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePaystackPayment } from 'react-paystack'
-import { useBilling } from '../../hooks/useBilling'
+import { useBilling } from '../../context/BillingContext'
 import { useAuth } from '../../context/AuthContext'
 
 const PLANS: Record<string, Record<string, {
@@ -57,9 +57,6 @@ function PaystackButton({
     initializePayment({
       onSuccess: (response: {
         reference: string
-        status: string
-        trans: string
-        transaction: string
         trxref: string
         [key: string]: unknown
       }) => {
@@ -115,15 +112,12 @@ export function PricingPage() {
     setLoading(false)
   }
 
-  // ── Pro view ─────────────────────────────────────────────────────────────
-  
+  // ── Pro view
   if (isPro) {
     return (
       <div className="max-w-lg mx-auto px-6 py-16 space-y-8">
-
         <div className="rounded-xl border border-emerald-500/30 bg-zinc-900/50 p-8 space-y-6">
 
-          {/* Plan header */}
           <div className="flex items-start justify-between">
             <div>
               <div className="mb-2">
@@ -131,20 +125,27 @@ export function PricingPage() {
                   {isTrialing ? 'Trial active' : 'Pro plan'}
                 </span>
               </div>
-              <h1 className="text-xl font-semibold text-zinc-100">hookdrop Pro</h1>
+              <h1 className="text-xl font-semibold text-zinc-100">
+                hookdrop Pro
+              </h1>
               <p className="text-zinc-400 text-sm mt-1">
                 {isTrialing
                   ? `Trial ends ${
                       subscription?.trial_end
-                        ? new Date(subscription.trial_end).toLocaleDateString('en-GB', {
-                            day: 'numeric', month: 'long', year: 'numeric',
-                          })
+                        ? new Date(subscription.trial_end).toLocaleDateString(
+                            'en-GB',
+                            { day: 'numeric', month: 'long', year: 'numeric' },
+                          )
                         : 'soon'
                     }`
                   : `Renews ${
                       subscription?.current_period_end
-                        ? new Date(subscription.current_period_end).toLocaleDateString('en-GB', {
-                            day: 'numeric', month: 'long', year: 'numeric',
+                        ? new Date(
+                            subscription.current_period_end,
+                          ).toLocaleDateString('en-GB', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
                           })
                         : 'monthly'
                     }`
@@ -154,18 +155,19 @@ export function PricingPage() {
             <span className="text-3xl">⚡</span>
           </div>
 
-          {/* What's included */}
           <div className="space-y-2.5 pt-4 border-t border-zinc-800">
             {PRO_FEATURES.map(f => (
-              <div key={f} className="flex items-center gap-2.5 text-sm text-zinc-300">
-                <span className="text-emerald-400 shrink-0">✓</span>
+              <div
+                key={f}
+                className="flex items-center gap-2.5 text-sm text-zinc-300"
+              >
+                <span className="text-emerald-400">✓</span>
                 {f}
               </div>
             ))}
           </div>
 
-
-          <div className="space-y-3 pt-4 border-t border-zinc-800">
+          <div className="space-y-2.5 pt-4 border-t border-zinc-800">
             <button
               onClick={openPortal}
               className="w-full py-2.5 rounded-lg border border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-zinc-100 text-sm font-medium transition-colors"
@@ -173,11 +175,10 @@ export function PricingPage() {
               Manage subscription
             </button>
             <p className="text-xs text-zinc-600 text-center">
-              Cancel anytime — access continues until the end of your billing period.
+              Cancel anytime — access continues until end of billing period.
             </p>
           </div>
         </div>
-
 
         <div className="text-center">
           <a
@@ -187,12 +188,11 @@ export function PricingPage() {
             ← Back to hookdrop
           </a>
         </div>
-
       </div>
     )
   }
 
-  // ── Free view ─────────────────────────────────────────────────────────────
+  // ── Free view
   return (
     <div className="max-w-3xl mx-auto px-6 py-12 space-y-10">
 
@@ -203,15 +203,16 @@ export function PricingPage() {
         </p>
       </div>
 
-      {/* Currency toggle */}
       <div className="flex items-center justify-center gap-3 text-sm">
         <span className="text-zinc-500">
           {currency === 'ngn' ? 'Paying in NGN' : 'Paying from Nigeria?'}
         </span>
         <button
           onClick={() => {
-            const next = currency === 'ngn' ? 'usd' : 'ngn'
-            localStorage.setItem('hookdrop_currency', next)
+            localStorage.setItem(
+              'hookdrop_currency',
+              currency === 'ngn' ? 'usd' : 'ngn',
+            )
             window.location.reload()
           }}
           className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-2"
@@ -220,7 +221,6 @@ export function PricingPage() {
         </button>
       </div>
 
-      {/* Interval toggle */}
       <div className="flex items-center justify-center">
         <div className="flex items-center bg-zinc-900 rounded-lg p-1 gap-1">
           <button
@@ -235,8 +235,7 @@ export function PricingPage() {
           </button>
           <button
             onClick={() => setInterval('year')}
-            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors
-              flex items-center gap-2 ${
+            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2 ${
               interval === 'year'
                 ? 'bg-zinc-700 text-zinc-100'
                 : 'text-zinc-500 hover:text-zinc-300'
@@ -250,10 +249,9 @@ export function PricingPage() {
         </div>
       </div>
 
-      {/* Plan cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-        {/* Free */}
+        {/* Free card */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 space-y-6">
           <div>
             <h2 className="text-lg font-semibold text-zinc-100">Free</h2>
@@ -267,7 +265,10 @@ export function PricingPage() {
           </div>
           <ul className="space-y-2.5">
             {FREE_FEATURES.map(f => (
-              <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-400">
+              <li
+                key={f}
+                className="flex items-start gap-2.5 text-sm text-zinc-400"
+              >
                 <span className="text-zinc-600 mt-0.5">–</span>
                 {f}
               </li>
@@ -280,7 +281,7 @@ export function PricingPage() {
           </div>
         </div>
 
-        {/* Pro */}
+        {/* Pro card */}
         <div className="rounded-xl border border-emerald-500/30 bg-zinc-900/50 p-6 space-y-6 relative">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2">
             <span className="bg-emerald-600 text-white text-[11px] font-semibold px-3 py-1 rounded-full">
@@ -290,7 +291,9 @@ export function PricingPage() {
           <div>
             <h2 className="text-lg font-semibold text-zinc-100">Pro</h2>
             <div className="mt-2 flex items-baseline gap-1">
-              <span className="text-3xl font-bold text-zinc-100">{prices.price}</span>
+              <span className="text-3xl font-bold text-zinc-100">
+                {prices.price}
+              </span>
               <span className="text-zinc-500 text-sm">{prices.period}</span>
             </div>
             {prices.total
@@ -300,7 +303,10 @@ export function PricingPage() {
           </div>
           <ul className="space-y-2.5">
             {PRO_FEATURES.map(f => (
-              <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-300">
+              <li
+                key={f}
+                className="flex items-start gap-2.5 text-sm text-zinc-300"
+              >
                 <span className="text-emerald-400 mt-0.5">✓</span>
                 {f}
               </li>
