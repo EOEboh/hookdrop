@@ -1,7 +1,11 @@
 import { useState } from 'react'
+import { usePaystackPayment } from 'react-paystack'
 import { useBilling } from '../../hooks/useBilling'
+import { useAuth } from '../../context/AuthContext'
 
-const PLANS: Record<string, Record<string, { price: string; period: string; total: string | null }>> = {
+const PLANS: Record<string, Record<string, {
+  price: string; period: string; total: string | null
+}>> = {
   usd: {
     month: { price: '$7',     period: '/mo', total: null },
     year:  { price: '$5.58',  period: '/mo', total: 'Billed $67/yr' },
@@ -30,19 +34,80 @@ const PRO_FEATURES = [
   '14-day free trial',
 ]
 
+
+function PaystackButton({
+  interval,
+  email,
+  loading,
+  setLoading,
+  onSuccess,
+}: {
+  interval: 'month' | 'year'
+  email: string
+  loading: boolean
+  setLoading: (v: boolean) => void
+  onSuccess: (ref: string) => void
+}) {
+  const { getPaystackConfig } = useBilling()
+  const config = getPaystackConfig(interval, email)
+
+  const initializePayment = usePaystackPayment(config)
+
+  const prices = PLANS['ngn'][interval]
+
+  function handleClick() {
+    setLoading(true)
+    initializePayment({
+      onSuccess: (response: { reference: string }) => {
+        onSuccess(response.reference)
+      },
+      onClose: () => {
+        setLoading(false)
+      },
+    })
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={loading}
+      className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+    >
+      {loading
+        ? 'Processing…'
+        : `Start free trial — ${prices.price}${prices.period} after`
+      }
+    </button>
+  )
+}
+
 export function PricingPage() {
-  const { subscription, isPro, isTrialing, currency, startCheckout, openPortal } = useBilling()
-  const [interval, setInterval] = useState<'month' | 'year'>('month')
-  const [loading, setLoading] = useState(false)
-  const [showCurrencyHint, setShowCurrencyHint] = useState(true)
+  const {
+    subscription, isPro, isTrialing,
+    currency, startCheckout,
+    handlePaystackSuccess, openPortal,
+  } = useBilling()
+  const { user } = useAuth()
 
-const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
+  const [interval, setInterval]   = useState<'month' | 'year'>('month')
+  const [loading, setLoading]     = useState(false)
+  const [showCurrencyHint]        = useState(true)
 
-  async function handleUpgrade() {
+  const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
+
+  async function handleLSCheckout() {
     setLoading(true)
     try {
       await startCheckout(interval)
     } catch {
+      setLoading(false)
+    }
+  }
+
+  async function handlePaystackSuccess_(reference: string) {
+    try {
+      await handlePaystackSuccess(reference, interval)
+    } finally {
       setLoading(false)
     }
   }
@@ -61,11 +126,13 @@ const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
       {/* Currency toggle */}
       {showCurrencyHint && (
         <div className="flex items-center justify-center gap-3 text-sm">
-          <span className="text-zinc-500">Paying from Nigeria?</span>
+          <span className="text-zinc-500">
+            {currency === 'ngn' ? 'Paying in NGN' : 'Paying from Nigeria?'}
+          </span>
           <button
             onClick={() => {
-              localStorage.setItem('hookdrop_currency', currency === 'ngn' ? 'usd' : 'ngn')
-              setShowCurrencyHint(false)
+              const next = currency === 'ngn' ? 'usd' : 'ngn'
+              localStorage.setItem('hookdrop_currency', next)
               window.location.reload()
             }}
             className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-2"
@@ -75,7 +142,7 @@ const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
         </div>
       )}
 
-      {/* Billing interval toggle */}
+      {/* Interval toggle */}
       <div className="flex items-center justify-center">
         <div className="flex items-center bg-zinc-900 rounded-lg p-1 gap-1">
           <button
@@ -90,7 +157,8 @@ const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
           </button>
           <button
             onClick={() => setInterval('year')}
-            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2 ${
+            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors
+              flex items-center gap-2 ${
               interval === 'year'
                 ? 'bg-zinc-700 text-zinc-100'
                 : 'text-zinc-500 hover:text-zinc-300'
@@ -156,12 +224,10 @@ const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
               <span className="text-3xl font-bold text-zinc-100">{prices.price}</span>
               <span className="text-zinc-500 text-sm">{prices.period}</span>
             </div>
-            {prices.total && (
-              <p className="text-zinc-500 text-xs mt-1">{prices.total}</p>
-            )}
-            {!prices.total && (
-              <p className="text-emerald-500 text-xs mt-1">14-day free trial</p>
-            )}
+            {prices.total
+              ? <p className="text-zinc-500 text-xs mt-1">{prices.total}</p>
+              : <p className="text-emerald-500 text-xs mt-1">14-day free trial</p>
+            }
           </div>
 
           <ul className="space-y-2.5">
@@ -187,27 +253,37 @@ const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
                 </button>
               </>
             ) : (
-              <button
-                onClick={handleUpgrade}
-                disabled={loading}
-                className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
-              >
-                {loading
-                  ? 'Redirecting…'
-                  : `Start free trial — ${prices.price}${prices.period} after`
-                }
-              </button>
+              // Route to correct payment provider
+              currency === 'ngn' ? (
+                <PaystackButton
+                  interval={interval}
+                  email={user?.email ?? ''}
+                  loading={loading}
+                  setLoading={setLoading}
+                  onSuccess={handlePaystackSuccess_}
+                />
+              ) : (
+                <button
+                  onClick={handleLSCheckout}
+                  disabled={loading}
+                  className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                >
+                  {loading
+                    ? 'Redirecting…'
+                    : `Start free trial — ${prices.price}${prices.period} after`
+                  }
+                </button>
+              )
             )}
           </div>
         </div>
       </div>
 
-      {/* Footer note */}
-     <p className="text-center text-xs text-zinc-600">
-  Cancel anytime. No questions asked.{' '}
-  Payments processed securely by{' '}
-  {currency === 'ngn' ? 'Paystack' : 'Lemon Squeezy'}.
-</p>
+      <p className="text-center text-xs text-zinc-600">
+        Cancel anytime. No questions asked.{' '}
+        Payments processed securely by{' '}
+        {currency === 'ngn' ? 'Paystack' : 'Lemon Squeezy'}.
+      </p>
     </div>
   )
 }

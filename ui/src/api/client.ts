@@ -161,4 +161,19 @@ getBillingPortal(): Promise<{ url: string }> {
     headers: { ...authHeaders() },
   }).then(handle<{ url: string }>)
 },
+
+verifyPaystackPayment(data: {
+  reference: string
+  plan: string
+  interval: string
+}): Promise<{ plan: string; status: string }> {
+  return fetch(`${BASE_URL}/billing/verify-paystack`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(data),
+  }).then(handle<{ plan: string; status: string }>)
+},
 }

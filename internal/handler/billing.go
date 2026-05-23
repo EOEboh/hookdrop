@@ -195,3 +195,108 @@ func (h *BillingHandler) processWebhookEvent(event *billing.WebhookEvent) error 
 
 	return h.Store.UpsertSubscription(sub)
 }
+
+// POST /billing/verify-paystack
+// Called by frontend after successful Paystack inline payment
+func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r)
+
+	var body struct {
+		Reference string `json:"reference"`
+		Plan      string `json:"plan"`
+		Interval  string `json:"interval"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if body.Reference == "" {
+		http.Error(w, "reference required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the transaction with Paystack directly
+	req, err := http.NewRequestWithContext(
+		r.Context(), "GET",
+		"https://api.paystack.co/transaction/verify/"+body.Reference,
+		nil,
+	)
+	if err != nil {
+		http.Error(w, "verification error", http.StatusInternalServerError)
+		return
+	}
+
+	// Get Paystack secret from the provider
+	ps, ok := h.Paystack.(*billing.PaystackProvider)
+	if !ok {
+		http.Error(w, "provider error", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+ps.SecretKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "paystack unreachable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Status bool `json:"status"`
+		Data   struct {
+			Status    string `json:"status"`
+			Reference string `json:"reference"`
+			Customer  struct {
+				CustomerCode string `json:"customer_code"`
+			} `json:"customer"`
+			Plan struct {
+				PlanCode string `json:"plan_code"`
+			} `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		http.Error(w, "decode error", http.StatusInternalServerError)
+		return
+	}
+
+	if !result.Status || result.Data.Status != "success" {
+		http.Error(w, "payment not successful", http.StatusPaymentRequired)
+		return
+	}
+
+	// Update subscription immediately — don't wait for webhook
+	now := time.Now().UTC()
+	var periodEnd *time.Time
+	if body.Interval == "year" {
+		t := now.Add(365 * 24 * time.Hour)
+		periodEnd = &t
+	} else {
+		t := now.Add(30 * 24 * time.Hour)
+		periodEnd = &t
+	}
+
+	sub := &models.Subscription{
+		UserID:             user.ID,
+		Plan:               "pro",
+		Provider:           "paystack",
+		ProviderCustomerID: result.Data.Customer.CustomerCode,
+		Status:             "active",
+		CurrentPeriodEnd:   periodEnd,
+		Currency:           "ngn",
+		Interval:           body.Interval,
+		CancelAtPeriodEnd:  false,
+		CreatedAt:          now,
+	}
+
+	if err := h.Store.UpsertSubscription(sub); err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"plan":   "pro",
+		"status": "active",
+	})
+}

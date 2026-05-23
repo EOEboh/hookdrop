@@ -17,7 +17,7 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState<string | null>(null)
   const [slugError, setSlugError]     = useState<string | null>(null)
-  const [limitReached, setLimitReached] = useState(false) // ← new
+  const [limitReached, setLimitReached] = useState(false)
 
   function validateSlugLocally(val: string): string | null {
     if (val.length < 3) return 'At least 3 characters'
@@ -39,7 +39,7 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
 
     setLoading(true)
     setError(null)
-    setLimitReached(false) 
+    setLimitReached(false)
 
     try {
       await onCreate({ slug, name: name.trim(), description: description.trim() || undefined })
@@ -47,10 +47,9 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
     } catch (err) {
       const message = err instanceof Error ? err.message : ''
 
-
-      // Check for the 402 status code prefix in the error message
-      if (message.startsWith('402')) {
-        setLimitReached(true) 
+      // Backend returns "402: ..." when the endpoint limit is reached
+      if (message.startsWith('402') || message.includes('endpoint_limit_reached')) {
+        setLimitReached(true)
       } else {
         setError(message || 'Failed to create endpoint')
       }
@@ -66,6 +65,7 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
         onClick={e => e.target === e.currentTarget && onClose()}
       >
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-md p-6 space-y-5">
+
           <div className="flex items-center justify-between">
             <h2 className="text-zinc-100 font-semibold">New named endpoint</h2>
             <button
@@ -76,20 +76,20 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
             </button>
           </div>
 
-         
+          {/* Upgrade prompt replaces the form when limit is hit */}
           {limitReached ? (
-            <>
+            <div className="space-y-4">
               <UpgradePrompt
                 feature="Named endpoint limit reached"
-                description="Free accounts include 1 named endpoint. Upgrade to Pro for unlimited endpoints."
+                description="Free accounts include 1 named endpoint. Upgrade to Pro for unlimited named endpoints, 50k requests/month, and 90 day history."
               />
               <button
                 onClick={onClose}
                 className="w-full px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
               >
-                Close
+                Maybe later
               </button>
-            </>
+            </div>
           ) : (
             <>
               {/* Name */}
@@ -117,14 +117,13 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
                     className="flex-1 bg-transparent text-sm font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none"
                   />
                 </div>
-                {slugError
-                  ? <p className="text-xs text-red-400">{slugError}</p>
-                  : slug.length >= 3 && (
-                    <p className="text-xs text-zinc-600 font-mono">
-                      {BASE_URL}/i/{slug}
-                    </p>
-                  )
-                }
+                {slugError ? (
+                  <p className="text-xs text-red-400">{slugError}</p>
+                ) : slug.length >= 3 && (
+                  <p className="text-xs text-zinc-600 font-mono">
+                    {BASE_URL}/i/{slug}
+                  </p>
+                )}
               </div>
 
               {/* Description */}
@@ -142,14 +141,12 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
                 />
               </div>
 
-              {/* Generic error: only shown for non-402 errors */}
               {error && (
                 <p className="text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg">
                   {error}
                 </p>
               )}
 
-              {/* Actions */}
               <div className="flex gap-3 pt-1">
                 <button
                   onClick={onClose}
@@ -167,6 +164,7 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
               </div>
             </>
           )}
+
         </div>
       </div>
     </Portal>

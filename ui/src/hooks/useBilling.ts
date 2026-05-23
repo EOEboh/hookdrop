@@ -10,7 +10,7 @@ export function useBilling() {
     loading: true,
   })
 
-  const fetch = useCallback(async () => {
+  const fetchSubscription = useCallback(async () => {
     try {
       const data = await api.getSubscription()
       setState({
@@ -24,14 +24,43 @@ export function useBilling() {
     }
   }, [])
 
-  useEffect(() => { fetch() }, [fetch])
+  useEffect(() => { fetchSubscription() }, [fetchSubscription])
 
-  // Detect region for provider routing
   const currency = detectCurrency()
 
+  // For LemonSqueezy (international): redirect flow unchanged
   async function startCheckout(interval: 'month' | 'year') {
     const result = await api.createCheckout(interval, currency)
     window.location.href = result.redirect_url
+  }
+
+  // For Paystack (NGN): returns config for react-paystack hook
+  function getPaystackConfig(interval: 'month' | 'year', email: string) {
+    const planCode = interval === 'year'
+      ? import.meta.env.VITE_PAYSTACK_PLAN_PRO_ANNUAL
+      : import.meta.env.VITE_PAYSTACK_PLAN_PRO_MONTHLY
+
+    return {
+      email,
+      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY ?? '',
+      plan: planCode,
+      currency: 'NGN',
+      // Amount is 0 because the plan defines the amount
+      amount: 0,
+      label: 'hookdrop Pro',
+    }
+  }
+
+  async function handlePaystackSuccess(
+    reference: string,
+    interval: 'month' | 'year',
+  ) {
+    await api.verifyPaystackPayment({
+      reference,
+      plan: 'pro',
+      interval,
+    })
+    await fetchSubscription()
   }
 
   async function openPortal() {
@@ -39,20 +68,29 @@ export function useBilling() {
     window.location.href = result.url
   }
 
-  const isPro = state.subscription?.plan === 'pro' && state.is_active
+  const isPro      = state.subscription?.plan === 'pro' && state.is_active
   const isTrialing = state.subscription?.status === 'trialing'
 
-  return { ...state, isPro, isTrialing, currency, startCheckout, openPortal, refetch: fetch }
+  return {
+    ...state,
+    isPro,
+    isTrialing,
+    currency,
+    startCheckout,
+    getPaystackConfig,
+    handlePaystackSuccess,
+    openPortal,
+    refetch: fetchSubscription,
+  }
 }
 
 function detectCurrency(): 'ngn' | 'usd' {
-  // Check stored preference first
   const stored = localStorage.getItem('hookdrop_currency')
   if (stored === 'ngn' || stored === 'usd') return stored
 
-  // Browser locale as signal
-  const locale = navigator.language || ''
-  if (locale.includes('NG') || Intl.DateTimeFormat().resolvedOptions().timeZone?.includes('Lagos')) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
+  const locale = navigator.language ?? ''
+  if (tz.includes('Lagos') || tz.includes('Africa') || locale.includes('NG')) {
     return 'ngn'
   }
   return 'usd'

@@ -132,9 +132,12 @@ func main() {
 	mux.HandleFunc("/auth/request", authHandler.RequestLink)
 	mux.HandleFunc("/auth/verify", authHandler.VerifyLink)
 
-	// Billing webhooks — public but signature-verified internally
+	// Billing webhooks: public but signature-verified internally
 	mux.HandleFunc("/billing/webhook/lemonsqueezy", billingHandler.LemonSqueezyWebhook)
 	mux.HandleFunc("/billing/webhook/paystack", billingHandler.PaystackWebhook)
+
+	mux.Handle("/billing/verify-paystack",
+		requireAuth(http.HandlerFunc(billingHandler.VerifyPaystack)))
 
 	// Billing — authenticated
 	mux.Handle("/billing/subscription",
