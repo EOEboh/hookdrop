@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import {  useState } from 'react'
 import { usePaystackPayment } from 'react-paystack'
 import { useBilling } from '../../hooks/useBilling'
 import { useAuth } from '../../context/AuthContext'
@@ -34,7 +34,6 @@ const PRO_FEATURES = [
   '14-day free trial',
 ]
 
-
 function PaystackButton({
   interval,
   email,
@@ -46,20 +45,25 @@ function PaystackButton({
   email: string
   loading: boolean
   setLoading: (v: boolean) => void
-  onSuccess: (ref: string) => void
+  onSuccess: (ref: string, interval: 'month' | 'year') => void
 }) {
   const { getPaystackConfig } = useBilling()
   const config = getPaystackConfig(interval, email)
-
   const initializePayment = usePaystackPayment(config)
-
   const prices = PLANS['ngn'][interval]
 
   function handleClick() {
     setLoading(true)
     initializePayment({
-      onSuccess: (response: { reference: string }) => {
-        onSuccess(response.reference)
+      onSuccess: (response: {
+        reference: string
+        status: string
+        trans: string
+        transaction: string
+        trxref: string
+        [key: string]: unknown
+      }) => {
+        onSuccess(response.reference ?? response.trxref, interval)
       },
       onClose: () => {
         setLoading(false)
@@ -70,7 +74,7 @@ function PaystackButton({
   return (
     <button
       onClick={handleClick}
-      disabled={loading}
+      disabled={loading || !email}
       className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
     >
       {loading
@@ -89,9 +93,8 @@ export function PricingPage() {
   } = useBilling()
   const { user } = useAuth()
 
-  const [interval, setInterval]   = useState<'month' | 'year'>('month')
-  const [loading, setLoading]     = useState(false)
-  const [showCurrencyHint]        = useState(true)
+  const [interval, setInterval] = useState<'month' | 'year'>('month')
+  const [loading, setLoading]   = useState(false)
 
   const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
 
@@ -104,18 +107,95 @@ export function PricingPage() {
     }
   }
 
-  async function handlePaystackSuccess_(reference: string) {
-    try {
-      await handlePaystackSuccess(reference, interval)
-    } finally {
-      setLoading(false)
-    }
+  async function handlePaystackSuccess_(
+    reference: string,
+    iv: 'month' | 'year',
+  ) {
+    await handlePaystackSuccess(reference, iv)
+    setLoading(false)
   }
 
+  // ── Pro view ─────────────────────────────────────────────────────────────
+  
+  if (isPro) {
+    return (
+      <div className="max-w-lg mx-auto px-6 py-16 space-y-8">
+
+        <div className="rounded-xl border border-emerald-500/30 bg-zinc-900/50 p-8 space-y-6">
+
+          {/* Plan header */}
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="mb-2">
+                <span className="text-[11px] font-semibold bg-emerald-600 text-white px-2.5 py-0.5 rounded-full">
+                  {isTrialing ? 'Trial active' : 'Pro plan'}
+                </span>
+              </div>
+              <h1 className="text-xl font-semibold text-zinc-100">hookdrop Pro</h1>
+              <p className="text-zinc-400 text-sm mt-1">
+                {isTrialing
+                  ? `Trial ends ${
+                      subscription?.trial_end
+                        ? new Date(subscription.trial_end).toLocaleDateString('en-GB', {
+                            day: 'numeric', month: 'long', year: 'numeric',
+                          })
+                        : 'soon'
+                    }`
+                  : `Renews ${
+                      subscription?.current_period_end
+                        ? new Date(subscription.current_period_end).toLocaleDateString('en-GB', {
+                            day: 'numeric', month: 'long', year: 'numeric',
+                          })
+                        : 'monthly'
+                    }`
+                }
+              </p>
+            </div>
+            <span className="text-3xl">⚡</span>
+          </div>
+
+          {/* What's included */}
+          <div className="space-y-2.5 pt-4 border-t border-zinc-800">
+            {PRO_FEATURES.map(f => (
+              <div key={f} className="flex items-center gap-2.5 text-sm text-zinc-300">
+                <span className="text-emerald-400 shrink-0">✓</span>
+                {f}
+              </div>
+            ))}
+          </div>
+
+
+          <div className="space-y-3 pt-4 border-t border-zinc-800">
+            <button
+              onClick={openPortal}
+              className="w-full py-2.5 rounded-lg border border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-zinc-100 text-sm font-medium transition-colors"
+            >
+              Manage subscription
+            </button>
+            <p className="text-xs text-zinc-600 text-center">
+              Cancel anytime — access continues until the end of your billing period.
+            </p>
+          </div>
+        </div>
+
+
+        <div className="text-center">
+          <a
+            href="/"
+            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            ← Back to hookdrop
+          </a>
+        </div>
+
+      </div>
+    )
+  }
+
+  // ── Free view ─────────────────────────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto px-6 py-12 space-y-10">
 
-      {/* Header */}
       <div className="text-center space-y-2">
         <h1 className="text-2xl font-semibold text-zinc-100">Simple pricing</h1>
         <p className="text-zinc-400 text-sm">
@@ -124,23 +204,21 @@ export function PricingPage() {
       </div>
 
       {/* Currency toggle */}
-      {showCurrencyHint && (
-        <div className="flex items-center justify-center gap-3 text-sm">
-          <span className="text-zinc-500">
-            {currency === 'ngn' ? 'Paying in NGN' : 'Paying from Nigeria?'}
-          </span>
-          <button
-            onClick={() => {
-              const next = currency === 'ngn' ? 'usd' : 'ngn'
-              localStorage.setItem('hookdrop_currency', next)
-              window.location.reload()
-            }}
-            className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-2"
-          >
-            {currency === 'ngn' ? 'Switch to USD' : 'Pay in NGN instead'}
-          </button>
-        </div>
-      )}
+      <div className="flex items-center justify-center gap-3 text-sm">
+        <span className="text-zinc-500">
+          {currency === 'ngn' ? 'Paying in NGN' : 'Paying from Nigeria?'}
+        </span>
+        <button
+          onClick={() => {
+            const next = currency === 'ngn' ? 'usd' : 'ngn'
+            localStorage.setItem('hookdrop_currency', next)
+            window.location.reload()
+          }}
+          className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-2"
+        >
+          {currency === 'ngn' ? 'Switch to USD' : 'Pay in NGN instead'}
+        </button>
+      </div>
 
       {/* Interval toggle */}
       <div className="flex items-center justify-center">
@@ -187,7 +265,6 @@ export function PricingPage() {
             </div>
             <p className="text-zinc-500 text-xs mt-1">Forever free</p>
           </div>
-
           <ul className="space-y-2.5">
             {FREE_FEATURES.map(f => (
               <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-400">
@@ -196,17 +273,10 @@ export function PricingPage() {
               </li>
             ))}
           </ul>
-
           <div className="pt-2">
-            {(!subscription || subscription.plan === 'free') ? (
-              <div className="w-full py-2 rounded-lg bg-zinc-800 text-zinc-500 text-sm text-center">
-                Current plan
-              </div>
-            ) : (
-              <div className="w-full py-2 rounded-lg border border-zinc-700 text-zinc-400 text-sm text-center">
-                Included
-              </div>
-            )}
+            <div className="w-full py-2 rounded-lg bg-zinc-800 text-zinc-500 text-sm text-center">
+              Current plan
+            </div>
           </div>
         </div>
 
@@ -217,7 +287,6 @@ export function PricingPage() {
               Most popular
             </span>
           </div>
-
           <div>
             <h2 className="text-lg font-semibold text-zinc-100">Pro</h2>
             <div className="mt-2 flex items-baseline gap-1">
@@ -229,7 +298,6 @@ export function PricingPage() {
               : <p className="text-emerald-500 text-xs mt-1">14-day free trial</p>
             }
           </div>
-
           <ul className="space-y-2.5">
             {PRO_FEATURES.map(f => (
               <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-300">
@@ -238,42 +306,26 @@ export function PricingPage() {
               </li>
             ))}
           </ul>
-
-          <div className="pt-2 space-y-2">
-            {isPro ? (
-              <>
-                <div className="w-full py-2 rounded-lg bg-emerald-600/20 text-emerald-400 text-sm text-center font-medium">
-                  {isTrialing ? 'Trial active' : 'Current plan'}
-                </div>
-                <button
-                  onClick={openPortal}
-                  className="w-full py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 text-sm transition-colors"
-                >
-                  Manage subscription
-                </button>
-              </>
+          <div className="pt-2">
+            {currency === 'ngn' ? (
+              <PaystackButton
+                interval={interval}
+                email={user?.email ?? ''}
+                loading={loading}
+                setLoading={setLoading}
+                onSuccess={handlePaystackSuccess_}
+              />
             ) : (
-              // Route to correct payment provider
-              currency === 'ngn' ? (
-                <PaystackButton
-                  interval={interval}
-                  email={user?.email ?? ''}
-                  loading={loading}
-                  setLoading={setLoading}
-                  onSuccess={handlePaystackSuccess_}
-                />
-              ) : (
-                <button
-                  onClick={handleLSCheckout}
-                  disabled={loading}
-                  className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                >
-                  {loading
-                    ? 'Redirecting…'
-                    : `Start free trial — ${prices.price}${prices.period} after`
-                  }
-                </button>
-              )
+              <button
+                onClick={handleLSCheckout}
+                disabled={loading}
+                className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {loading
+                  ? 'Redirecting…'
+                  : `Start free trial — ${prices.price}${prices.period} after`
+                }
+              </button>
             )}
           </div>
         </div>

@@ -40,28 +40,34 @@ export function useBilling() {
       ? import.meta.env.VITE_PAYSTACK_PLAN_PRO_ANNUAL
       : import.meta.env.VITE_PAYSTACK_PLAN_PRO_MONTHLY
 
+      const amount = interval === 'year' ? 3360000 : 350000
+
     return {
+      publicKey:  import.meta.env.VITE_PAYSTACK_PUBLIC_KEY ?? '',
       email,
-      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY ?? '',
-      plan: planCode,
-      currency: 'NGN',
-      // Amount is 0 because the plan defines the amount
-      amount: 0,
-      label: 'hookdrop Pro',
+      amount,
+      plan:       planCode,
+      label:      'hookdrop Pro',
     }
   }
 
-  async function handlePaystackSuccess(
-    reference: string,
-    interval: 'month' | 'year',
-  ) {
-    await api.verifyPaystackPayment({
-      reference,
-      plan: 'pro',
-      interval,
-    })
+ async function handlePaystackSuccess(
+  reference: string,
+  interval: 'month' | 'year',
+) {
+  await new Promise(resolve => setTimeout(resolve, 1500))
+
+  try {
+    await api.verifyPaystackPayment({ reference, plan: 'pro', interval })
+    await fetchSubscription()
+  } catch (err) {
+    console.error('Verify error (non-fatal):', err)
     await fetchSubscription()
   }
+
+
+  window.location.href = '/?upgraded=true'
+}
 
   async function openPortal() {
     const result = await api.getBillingPortal()
