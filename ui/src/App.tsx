@@ -6,12 +6,14 @@ import { Sidebar } from './components/layout/Sidebar'
 import { MainPanel } from './components/layout/MainPanel'
 import { LoginPage } from './pages/LoginPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
+import { PricingPage } from './components/billing/PricingPage'
 import { Spinner } from './components/ui/Spinner'
 import { DEFAULT_FILTERS, type CapturedRequest, type Endpoint, type RequestFilters } from './types'
 
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth()
 
+  // Special routes handled before auth check 
   if (window.location.pathname === '/auth/callback') {
     return <AuthCallbackPage />
   }
@@ -27,24 +29,57 @@ export default function App() {
   const urlError = new URLSearchParams(window.location.search).get('error')
   if (!user) return <LoginPage errorHint={urlError} />
 
+  //  Authenticated routes 
+  if (window.location.pathname === '/settings/billing') {
+    return <BillingPageShell onLogout={logout} />
+  }
+
   return <AuthenticatedApp onLogout={logout} />
+}
+
+// Thin shell that wraps PricingPage with a back button and consistent chrome
+function BillingPageShell({ onLogout }: { onLogout: () => void }) {
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+
+      {/* Top bar */}
+      <div className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => window.history.back()}
+            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors flex items-center gap-1.5"
+          >
+            ← Back
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚡</span>
+            <span className="font-semibold text-zinc-100 tracking-tight">hookdrop</span>
+          </div>
+        </div>
+        <button
+          onClick={onLogout}
+          className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+        >
+          Log out
+        </button>
+      </div>
+
+      {/* Page content */}
+      <PricingPage />
+    </div>
+  )
 }
 
 function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const { session, loading, error, resetSession } = useSession()
 
-  // Active feed source: null means use the temporary session
-  const [activeEndpoint, setActiveEndpoint] = useState<Endpoint | null>(null)
+  const [activeEndpoint, setActiveEndpoint]   = useState<Endpoint | null>(null)
   const [selectedRequest, setSelectedRequest] = useState<CapturedRequest | null>(null)
+  const [filters, setFilters]                 = useState<RequestFilters>(DEFAULT_FILTERS)
 
-
-  const [filters, setFilters] = useState<RequestFilters>(DEFAULT_FILTERS)
-
-  // Single feed: switches between temp session and named endpoint
   const activeFeedId = activeEndpoint ? activeEndpoint.id : session?.id ?? null
-  const { requests, status, clearRequests, totalCount, } = useRequestFeed(activeFeedId, filters)
+  const { requests, status, clearRequests, totalCount } = useRequestFeed(activeFeedId, filters)
 
-  // When switching feed source, clear the selected request
   function handleSelectEndpoint(ep: Endpoint) {
     setActiveEndpoint(ep)
     setSelectedRequest(null)
