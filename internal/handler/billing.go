@@ -223,7 +223,7 @@ func (h *BillingHandler) processWebhookEvent(
 	sub := &models.Subscription{
 		UserID:             event.UserID,
 		Plan:               plan,
-		Provider:           providerName, // ← fixed: was event.Type
+		Provider:           providerName,
 		ProviderCustomerID: event.CustomerID,
 		ProviderSubID:      event.SubscriptionID,
 		Status:             event.Status,
@@ -243,7 +243,6 @@ func (h *BillingHandler) processWebhookEvent(
 // POST /billing/verify-paystack
 func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
-
 	log.Printf("VerifyPaystack called: user_id=%s", user.ID)
 
 	var body struct {
@@ -256,7 +255,6 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-
 	log.Printf("VerifyPaystack body: reference=%s plan=%s interval=%s",
 		body.Reference, body.Plan, body.Interval)
 
@@ -272,21 +270,17 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Plan field from Paystack verify can be either:
-	//   - a plain string:  "PLN_xxx"
-	//   - a nested object: {"plan_code":"PLN_xxx","interval":"monthly",...}
-	// json.RawMessage accepts both without erroring the whole decode.
 	var result struct {
 		Status  bool   `json:"status"`
 		Message string `json:"message"`
 		Data    struct {
 			Status   string `json:"status"`
-			Amount   int    `json:"amount"`
+			Amount   int    `json:"amount"` // 0 = trial charge
 			Customer struct {
 				CustomerCode string `json:"customer_code"`
 				Email        string `json:"email"`
 			} `json:"customer"`
-			Plan json.RawMessage `json:"plan"`
+			Plan json.RawMessage `json:"plan"` // string or object
 		} `json:"data"`
 	}
 
@@ -325,9 +319,9 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
-		log.Printf("VerifyPaystack: attempt %d — status=%v data.status=%s customer=%s",
+		log.Printf("VerifyPaystack: attempt %d — status=%v data.status=%s amount=%d customer=%s",
 			i+1, result.Status, result.Data.Status,
-			result.Data.Customer.CustomerCode)
+			result.Data.Amount, result.Data.Customer.CustomerCode)
 
 		if result.Status && result.Data.Status == "success" {
 			lastErr = nil
@@ -343,13 +337,39 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	}
 
 	now := time.Now().UTC()
+
+	// Detect trial: Paystack charges ₦0 for the first transaction on a plan with a trial
+	isTrial := result.Data.Amount == 0
+
+	// Set subscription status and trial_end based on whether this is a trial
+	subStatus := "active"
+	var trialEnd *time.Time
 	var periodEnd *time.Time
-	if body.Interval == "year" {
-		t := now.Add(365 * 24 * time.Hour)
-		periodEnd = &t
+
+	if isTrial {
+		subStatus = "trialing"
+		// Trial is 14 days: set trial_end
+		te := now.Add(14 * 24 * time.Hour)
+		trialEnd = &te
+		// Period end is after trial ends + one billing cycle
+		var pe time.Time
+		if body.Interval == "year" {
+			pe = te.Add(365 * 24 * time.Hour)
+		} else {
+			pe = te.Add(30 * 24 * time.Hour)
+		}
+		periodEnd = &pe
+		log.Printf("VerifyPaystack: detected trial — trial_end=%s", te.Format(time.RFC3339))
 	} else {
-		t := now.Add(30 * 24 * time.Hour)
-		periodEnd = &t
+		// Paid charge: set period end from now
+		var pe time.Time
+		if body.Interval == "year" {
+			pe = now.Add(365 * 24 * time.Hour)
+		} else {
+			pe = now.Add(30 * 24 * time.Hour)
+		}
+		periodEnd = &pe
+		log.Printf("VerifyPaystack: detected paid charge — amount=%d", result.Data.Amount)
 	}
 
 	customerCode := result.Data.Customer.CustomerCode
@@ -361,19 +381,20 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	sub := &models.Subscription{
 		UserID:             user.ID,
 		Plan:               "pro",
-		Provider:           "paystack", // ← always the provider name, not event type
+		Provider:           "paystack",
 		ProviderCustomerID: customerCode,
 		ProviderSubID:      body.Reference,
-		Status:             "active",
+		Status:             subStatus,
 		CurrentPeriodEnd:   periodEnd,
+		TrialEnd:           trialEnd,
 		Currency:           "ngn",
 		Interval:           body.Interval,
 		CancelAtPeriodEnd:  false,
 		CreatedAt:          now,
 	}
 
-	log.Printf("VerifyPaystack: upserting — user=%s plan=pro customer=%s interval=%s",
-		user.ID, customerCode, body.Interval)
+	log.Printf("VerifyPaystack: upserting — user=%s plan=pro status=%s customer=%s",
+		user.ID, subStatus, customerCode)
 
 	if err := h.Store.UpsertSubscription(sub); err != nil {
 		log.Printf("VerifyPaystack: upsert FAILED: %v", err)
@@ -381,11 +402,14 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	log.Printf("VerifyPaystack: upsert SUCCESS — user=%s is now Pro", user.ID)
+	log.Printf("VerifyPaystack: upsert SUCCESS — user=%s is now Pro (status=%s)",
+		user.ID, subStatus)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"plan":   "pro",
-		"status": "active",
+		"plan":      "pro",
+		"status":    subStatus,
+		"is_trial":  isTrial,
+		"trial_end": trialEnd,
 	})
 }
