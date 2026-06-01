@@ -605,12 +605,12 @@ func (s *Store) EndpointBelongsToUser(endpointID, userID string) bool {
 func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 	sub := &models.Subscription{}
 	err := s.db.QueryRow(`
-        SELECT id, user_id, plan, COALESCE(provider,''), 
-               COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
-               status, current_period_end, trial_end,
-               cancel_at_period_end, COALESCE(currency,'usd'),
-               COALESCE(interval,'month'), created_at, updated_at
-        FROM subscriptions WHERE user_id = ?`, userID,
+		SELECT id, user_id, plan, COALESCE(provider,''),
+		       COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
+		       status, current_period_end, trial_end,
+		       cancel_at_period_end, COALESCE(currency,'usd'),
+		       COALESCE(interval,'month'), created_at, updated_at
+		FROM subscriptions WHERE user_id = ?`, userID,
 	).Scan(
 		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
 		&sub.ProviderCustomerID, &sub.ProviderSubID,
@@ -619,7 +619,7 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		// Return a default free subscription if none exists
+		// No subscription row: return a default free subscription
 		return &models.Subscription{
 			UserID:   userID,
 			Plan:     "free",
@@ -627,7 +627,33 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 			Currency: "usd",
 		}, nil
 	}
-	return sub, err
+	if err != nil {
+		return nil, err
+	}
+
+	// - Auto-expiry check ─────────────────────────────────────────────────
+	// If the user cancelled and the period has passed, treat them as free
+	// without waiting for a Paystack webhook that may never arrive.
+	// This is a read-time check only — nothing is written to the database.
+	// The webhook will eventually persist the correct state when it fires.
+	if sub.CancelAtPeriodEnd &&
+		sub.CurrentPeriodEnd != nil &&
+		time.Now().After(*sub.CurrentPeriodEnd) {
+		sub.Plan = "free"
+		sub.Status = "canceled"
+	}
+
+	// - Trial expiry check ────────────────────────────────────────────────
+	// If the trial has ended and no payment has been taken yet,
+	// downgrade to free until Paystack confirms the first real charge.
+	if sub.Status == "trialing" &&
+		sub.TrialEnd != nil &&
+		time.Now().After(*sub.TrialEnd) {
+		sub.Plan = "free"
+		sub.Status = "past_due"
+	}
+
+	return sub, nil
 }
 
 func (s *Store) UpsertSubscription(sub *models.Subscription) error {

@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/EOEboh/hookdrop/internal/billing"
@@ -416,33 +418,78 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 // POST /billing/cancel
 func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	user := middleware.GetUser(r)
+	log.Printf("CancelSubscription: user=%s", user.ID)
 
 	sub, err := h.Store.GetSubscription(user.ID)
-	if err != nil || sub.Plan == "free" || sub.ID == "" {
-		http.Error(w, "no active subscription", http.StatusBadRequest)
-		return
-	}
-
-	// Cancel at period end: user keeps access till then
-	if err := h.getProvider(sub.Currency).CancelSubscription(
-		r.Context(), sub.ProviderSubID,
-	); err != nil {
-		log.Printf("CancelSubscription error: %v", err)
-		http.Error(w, "cancellation failed", http.StatusInternalServerError)
-		return
-	}
-
-	// Mark cancel_at_period_end in the database
-	sub.CancelAtPeriodEnd = true
-	sub.UpdatedAt = time.Now().UTC()
-	if err := h.Store.UpsertSubscription(sub); err != nil {
-		log.Printf("CancelSubscription upsert error: %v", err)
+	if err != nil {
+		log.Printf("CancelSubscription: store error: %v", err)
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("CancelSubscription: user=%s scheduled cancel at period end", user.ID)
+	if sub.Plan == "free" || sub.ID == "" {
+		http.Error(w, "no active subscription", http.StatusBadRequest)
+		return
+	}
+
+	if sub.CancelAtPeriodEnd {
+		// Already scheduled for cancellation — return success idempotently
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"cancelled":            true,
+			"cancel_at_period_end": true,
+			"access_until":         sub.CurrentPeriodEnd,
+		})
+		return
+	}
+
+	// For Paystack: ProviderSubID may be a transaction reference (T_xxx)
+	// rather than a subscription code (SUB_xxx).
+	// Attempt to find the real subscription code via Paystack API.
+	// If it fails, we still honour the cancellation intent in our DB.
+	if sub.Provider == "paystack" {
+		ps, ok := h.Paystack.(*billing.PaystackProvider)
+		if ok {
+			subCode := h.resolvePaystackSubscriptionCode(
+				r.Context(), ps, sub.ProviderCustomerID,
+			)
+			if subCode != "" {
+				log.Printf("CancelSubscription: resolved subscription code %s for customer %s",
+					subCode, sub.ProviderCustomerID)
+				// Attempt Paystack API cancellation — non-fatal if it fails
+				if err := h.Paystack.CancelSubscription(r.Context(), subCode); err != nil {
+					log.Printf("CancelSubscription: Paystack API error (non-fatal): %v", err)
+				}
+			} else {
+				log.Printf("CancelSubscription: could not resolve subscription code — marking cancelled in DB only")
+			}
+		}
+	} else {
+		// LemonSqueezy — use stored sub ID directly
+		if err := h.LemonSqueezy.CancelSubscription(r.Context(), sub.ProviderSubID); err != nil {
+			log.Printf("CancelSubscription: LemonSqueezy error (non-fatal): %v", err)
+		}
+	}
+
+	// Always mark cancel_at_period_end regardless of provider API result
+	// The user expressed intent to cancel — honour it in our system
+	sub.CancelAtPeriodEnd = true
+	sub.UpdatedAt = time.Now().UTC()
+
+	if err := h.Store.UpsertSubscription(sub); err != nil {
+		log.Printf("CancelSubscription: upsert error: %v", err)
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("CancelSubscription: user=%s scheduled cancel at period end=%v",
+		user.ID, sub.CurrentPeriodEnd)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -450,4 +497,50 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 		"cancel_at_period_end": true,
 		"access_until":         sub.CurrentPeriodEnd,
 	})
+}
+
+// resolvePaystackSubscriptionCode looks up the active subscription code
+// for a customer because ProviderSubID may be a transaction reference.
+func (h *BillingHandler) resolvePaystackSubscriptionCode(
+	ctx context.Context,
+	ps *billing.PaystackProvider,
+	customerCode string,
+) string {
+	if customerCode == "" || strings.HasPrefix(customerCode, "paystack_") {
+		return "" // fallback customer code — can't look up
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		"https://api.paystack.co/subscription?customer="+customerCode+"&status=active",
+		nil,
+	)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+ps.SecretKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Status bool `json:"status"`
+		Data   []struct {
+			SubscriptionCode string `json:"subscription_code"`
+			Status           string `json:"status"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+
+	for _, s := range result.Data {
+		if s.Status == "active" && s.SubscriptionCode != "" {
+			return s.SubscriptionCode
+		}
+	}
+	return ""
 }

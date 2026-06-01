@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useBilling } from '../../context/BillingContext'
+import { api } from '../../api/client'
 
 export function ManageSubscriptionPanel({
   onClose,
@@ -27,22 +28,11 @@ export function ManageSubscriptionPanel({
     setCancelling(true)
     setError(null)
     try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/billing/cancel`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('hookdrop_token')}`,
-          },
-        },
-      )
-      if (!res.ok) throw new Error(`${res.status}`)
+      await api.cancelSubscription()
       await refetch()
       setCancelled(true)
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Cancellation failed',
-      )
+      setError(err instanceof Error ? err.message : 'Cancellation failed')
     } finally {
       setCancelling(false)
     }
@@ -58,7 +48,7 @@ export function ManageSubscriptionPanel({
           <p className="text-xs text-zinc-500">
             Your Pro access continues until{' '}
             <span className="text-zinc-300">{renewalDate}</span>.
-            After that you'll be on the free plan.
+            After that you'll move to the free plan automatically.
           </p>
         </div>
         <button
@@ -75,7 +65,7 @@ export function ManageSubscriptionPanel({
     <div className="space-y-5">
 
       {/* Current status */}
-      <div className="rounded-lg bg-zinc-800/60 px-4 py-3 space-y-2">
+      <div className="rounded-lg bg-zinc-800/60 px-4 py-3 space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-xs text-zinc-500">Status</span>
           <span className={`text-xs font-medium ${
@@ -105,13 +95,13 @@ export function ManageSubscriptionPanel({
           </span>
         </div>
         {subscription?.cancel_at_period_end && (
-          <div className="pt-1 text-xs text-amber-400">
+          <p className="text-xs text-amber-400 pt-1">
             Cancellation scheduled — access until {renewalDate}
-          </div>
+          </p>
         )}
       </div>
 
-      {/* Cancel option */}
+      {/* Cancel — only shown if not already cancelled */}
       {!subscription?.cancel_at_period_end && (
         <div className="space-y-2">
           <button
@@ -128,7 +118,9 @@ export function ManageSubscriptionPanel({
       )}
 
       {error && (
-        <p className="text-xs text-red-400 text-center">{error}</p>
+        <p className="text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg text-center">
+          {error}
+        </p>
       )}
 
       <button

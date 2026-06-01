@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { usePaystackPayment } from 'react-paystack'
 import { useBilling } from '../../context/BillingContext'
 import { useAuth } from '../../context/AuthContext'
+import { ManageSubscriptionPanel } from './ManageSubscriptionPanel'
+import { Spinner } from '../ui/Spinner'
 
 const PLANS: Record<string, Record<string, {
   price: string; period: string; total: string | null
@@ -84,23 +86,33 @@ function PaystackButton({
 
 export function PricingPage() {
   const {
-    subscription, isPro, isTrialing,
+    subscription, isPro, isTrialing, loading,
     currency, startCheckout,
-    handlePaystackSuccess, openPortal,
+    handlePaystackSuccess,
   } = useBilling()
   const { user } = useAuth()
 
-  const [interval, setInterval] = useState<'month' | 'year'>('month')
-  const [loading, setLoading]   = useState(false)
+  const [interval, setInterval]           = useState<'month' | 'year'>('month')
+  const [payLoading, setPayLoading]        = useState(false)
+  const [showManagePanel, setShowManagePanel] = useState(false)
 
   const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
 
+  // ── Loading guard — prevents flash of free view for Pro users
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Spinner size={5} />
+      </div>
+    )
+  }
+
   async function handleLSCheckout() {
-    setLoading(true)
+    setPayLoading(true)
     try {
       await startCheckout(interval)
     } catch {
-      setLoading(false)
+      setPayLoading(false)
     }
   }
 
@@ -109,7 +121,26 @@ export function PricingPage() {
     iv: 'month' | 'year',
   ) {
     await handlePaystackSuccess(reference, iv)
-    setLoading(false)
+    setPayLoading(false)
+  }
+
+  // ── Renewal date label — aware of cancellation and trial states
+  function renewalLabel(): string {
+    if (!subscription?.current_period_end) return 'monthly'
+    const date = new Date(subscription.current_period_end).toLocaleDateString(
+      'en-GB',
+      { day: 'numeric', month: 'long', year: 'numeric' },
+    )
+    if (subscription.cancel_at_period_end) return `Access until ${date}`
+    return `Renews ${date}`
+  }
+
+  function trialLabel(): string {
+    if (!subscription?.trial_end) return 'Trial ends soon'
+    return `Trial ends ${new Date(subscription.trial_end).toLocaleDateString(
+      'en-GB',
+      { day: 'numeric', month: 'long', year: 'numeric' },
+    )}`
   }
 
   // ── Pro view
@@ -129,27 +160,7 @@ export function PricingPage() {
                 hookdrop Pro
               </h1>
               <p className="text-zinc-400 text-sm mt-1">
-                {isTrialing
-                  ? `Trial ends ${
-                      subscription?.trial_end
-                        ? new Date(subscription.trial_end).toLocaleDateString(
-                            'en-GB',
-                            { day: 'numeric', month: 'long', year: 'numeric' },
-                          )
-                        : 'soon'
-                    }`
-                  : `Renews ${
-                      subscription?.current_period_end
-                        ? new Date(
-                            subscription.current_period_end,
-                          ).toLocaleDateString('en-GB', {
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric',
-                          })
-                        : 'monthly'
-                    }`
-                }
+                {isTrialing ? trialLabel() : renewalLabel()}
               </p>
             </div>
             <span className="text-3xl">⚡</span>
@@ -167,16 +178,25 @@ export function PricingPage() {
             ))}
           </div>
 
-          <div className="space-y-2.5 pt-4 border-t border-zinc-800">
-            <button
-              onClick={openPortal}
-              className="w-full py-2.5 rounded-lg border border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-zinc-100 text-sm font-medium transition-colors"
-            >
-              Manage subscription
-            </button>
-            <p className="text-xs text-zinc-600 text-center">
-              Cancel anytime! Access continues until end of billing period.
-            </p>
+          {/* Management section: toggles between button and panel */}
+          <div className="pt-4 border-t border-zinc-800">
+            {showManagePanel ? (
+              <ManageSubscriptionPanel
+                onClose={() => setShowManagePanel(false)}
+              />
+            ) : (
+              <div className="space-y-2.5">
+                <button
+                  onClick={() => setShowManagePanel(true)}
+                  className="w-full py-2.5 rounded-lg border border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-zinc-100 text-sm font-medium transition-colors"
+                >
+                  Manage subscription
+                </button>
+                <p className="text-xs text-zinc-600 text-center">
+                  Cancel anytime! Access continues until end of billing period.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -317,17 +337,17 @@ export function PricingPage() {
               <PaystackButton
                 interval={interval}
                 email={user?.email ?? ''}
-                loading={loading}
-                setLoading={setLoading}
+                loading={payLoading}
+                setLoading={setPayLoading}
                 onSuccess={handlePaystackSuccess_}
               />
             ) : (
               <button
                 onClick={handleLSCheckout}
-                disabled={loading}
+                disabled={payLoading}
                 className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
-                {loading
+                {payLoading
                   ? 'Redirecting…'
                   : `Start free trial — ${prices.price}${prices.period} after`
                 }

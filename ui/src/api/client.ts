@@ -176,4 +176,14 @@ verifyPaystackPayment(data: {
     body: JSON.stringify(data),
   }).then(handle<{ plan: string; status: string }>)
 },
+cancelSubscription(): Promise<{
+  cancelled: boolean
+  cancel_at_period_end: boolean
+  access_until: string | null
+}> {
+  return fetch(`${BASE_URL}/billing/cancel`, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+  }).then(handle<{ cancelled: boolean; cancel_at_period_end: boolean; access_until: string | null }>)
+},
 }
