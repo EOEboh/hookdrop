@@ -131,6 +131,40 @@ func (s *Store) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_webhook_secrets_endpoint
     ON webhook_secrets(endpoint_id);
+
+	CREATE TABLE IF NOT EXISTS subscriptions (
+    id                  TEXT PRIMARY KEY,
+    user_id             TEXT UNIQUE NOT NULL,
+    plan                TEXT NOT NULL DEFAULT 'free',
+    provider            TEXT,            -- 'stripe' or 'paystack'
+    provider_customer_id TEXT,           -- Stripe customer ID or Paystack customer code
+    provider_sub_id     TEXT,            -- Stripe subscription ID or Paystack subscription code
+    status              TEXT NOT NULL DEFAULT 'active',  -- active, past_due, canceled, trialing
+    current_period_end  DATETIME,
+    trial_end           DATETIME,
+    cancel_at_period_end INTEGER DEFAULT 0,
+    currency            TEXT DEFAULT 'usd',
+    interval            TEXT DEFAULT 'month',  -- month or year
+    created_at          DATETIME NOT NULL,
+    updated_at          DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+	CREATE TABLE IF NOT EXISTS billing_events (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT,
+    provider     TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    payload      TEXT NOT NULL,
+    processed    INTEGER DEFAULT 0,
+    created_at   DATETIME NOT NULL
+);
+
+	CREATE INDEX IF NOT EXISTS idx_subscriptions_user
+    ON subscriptions(user_id);
+
+	CREATE INDEX IF NOT EXISTS idx_subscriptions_provider_sub
+    ON subscriptions(provider_sub_id);
     `
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -147,6 +181,8 @@ func (s *Store) migrate() error {
 		{"requests", "endpoint_id", "TEXT REFERENCES endpoints(id)"},
 		{"requests", "verified", "TEXT DEFAULT 'unverified'"},
 		{"requests", "provider", "TEXT DEFAULT ''"},
+		{"users", "country", "TEXT"},
+		{"users", "billing_email", "TEXT"},
 	}
 
 	for _, m := range migrations {
@@ -562,4 +598,116 @@ func (s *Store) EndpointBelongsToUser(endpointID, userID string) bool {
 		endpointID, userID,
 	).Scan(&count)
 	return err == nil && count > 0
+}
+
+// SUBSCRIPTION/PAYMENT METHODS
+
+func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
+	sub := &models.Subscription{}
+	err := s.db.QueryRow(`
+		SELECT id, user_id, plan, COALESCE(provider,''),
+		       COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
+		       status, current_period_end, trial_end,
+		       cancel_at_period_end, COALESCE(currency,'usd'),
+		       COALESCE(interval,'month'), created_at, updated_at
+		FROM subscriptions WHERE user_id = ?`, userID,
+	).Scan(
+		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
+		&sub.ProviderCustomerID, &sub.ProviderSubID,
+		&sub.Status, &sub.CurrentPeriodEnd, &sub.TrialEnd,
+		&sub.CancelAtPeriodEnd, &sub.Currency, &sub.Interval,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		// No subscription row: return a default free subscription
+		return &models.Subscription{
+			UserID:   userID,
+			Plan:     "free",
+			Status:   "active",
+			Currency: "usd",
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// - Auto-expiry check ─────────────────────────────────────────────────
+	// If the user cancelled and the period has passed, treat them as free
+	// without waiting for a Paystack webhook that may never arrive.
+	// This is a read-time check only — nothing is written to the database.
+	// The webhook will eventually persist the correct state when it fires.
+	if sub.CancelAtPeriodEnd &&
+		sub.CurrentPeriodEnd != nil &&
+		time.Now().After(*sub.CurrentPeriodEnd) {
+		sub.Plan = "free"
+		sub.Status = "canceled"
+	}
+
+	// - Trial expiry check ────────────────────────────────────────────────
+	// If the trial has ended and no payment has been taken yet,
+	// downgrade to free until Paystack confirms the first real charge.
+	if sub.Status == "trialing" &&
+		sub.TrialEnd != nil &&
+		time.Now().After(*sub.TrialEnd) {
+		sub.Plan = "free"
+		sub.Status = "past_due"
+	}
+
+	return sub, nil
+}
+
+func (s *Store) UpsertSubscription(sub *models.Subscription) error {
+	if sub.ID == "" {
+		sub.ID = uuid.NewString()
+	}
+	now := time.Now().UTC()
+	sub.UpdatedAt = now
+	if sub.CreatedAt.IsZero() {
+		sub.CreatedAt = now
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO subscriptions
+			(id, user_id, plan, provider, provider_customer_id, provider_sub_id,
+			 status, current_period_end, trial_end, cancel_at_period_end,
+			 currency, interval, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET
+			plan                 = excluded.plan,
+			provider             = excluded.provider,
+			provider_customer_id = excluded.provider_customer_id,
+			provider_sub_id      = excluded.provider_sub_id,
+			status               = excluded.status,
+			current_period_end   = excluded.current_period_end,
+			trial_end            = excluded.trial_end,
+			cancel_at_period_end = excluded.cancel_at_period_end,
+			currency             = excluded.currency,
+			interval             = excluded.interval,
+			updated_at           = excluded.updated_at`,
+		sub.ID, sub.UserID, sub.Plan, sub.Provider,
+		sub.ProviderCustomerID, sub.ProviderSubID,
+		sub.Status, sub.CurrentPeriodEnd, sub.TrialEnd,
+		sub.CancelAtPeriodEnd, sub.Currency, sub.Interval,
+		sub.CreatedAt, sub.UpdatedAt,
+	)
+	return err
+}
+
+func (s *Store) CountUserEndpoints(userID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM endpoints WHERE user_id = ?`, userID,
+	).Scan(&count)
+	return count, err
+}
+
+func (s *Store) CountUserRequestsThisMonth(userID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+        SELECT COUNT(*) FROM requests r
+        JOIN endpoints e ON e.id = r.session_id
+        WHERE e.user_id = ?
+        AND r.received_at >= datetime('now', 'start of month')`, userID,
+	).Scan(&count)
+	return count, err
 }

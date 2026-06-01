@@ -72,3 +72,28 @@ type VerificationResult struct {
 	Provider string `json:"provider"` // which provider verified it
 	Reason   string `json:"reason"`   // human-readable explanation
 }
+
+type Subscription struct {
+	ID                 string     `json:"id"`
+	UserID             string     `json:"user_id"`
+	Plan               string     `json:"plan"`
+	Provider           string     `json:"provider"`
+	ProviderCustomerID string     `json:"-"`
+	ProviderSubID      string     `json:"-"`
+	Status             string     `json:"status"`
+	CurrentPeriodEnd   *time.Time `json:"current_period_end"`
+	TrialEnd           *time.Time `json:"trial_end"`
+	CancelAtPeriodEnd  bool       `json:"cancel_at_period_end"`
+	Currency           string     `json:"currency"`
+	Interval           string     `json:"interval"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type PlanLimit struct {
+	MaxNamedEndpoints   int
+	MaxRequestsPerMonth int
+	HistoryDays         int
+	MaxSecrets          int
+	HasFiltering        bool
+}

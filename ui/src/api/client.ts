@@ -1,6 +1,7 @@
 import type {
-  CapturedRequest, Endpoint, ReplayRequest,
+  CapturedRequest, Endpoint, PlanLimits, ReplayRequest,
   ReplayResponse, RequestFilters, Session,
+  Subscription,
   WebhookSecret
 } from '../types'
 
@@ -139,5 +140,50 @@ deleteSecret(endpointId: string, secretId: string): Promise<void> {
     headers: { ...authHeaders() },
   }).then(res => { if (!res.ok) throw new Error(`${res.status}`) })
 },
-}
 
+getSubscription(): Promise<{ subscription: Subscription; limits: PlanLimits; is_active: boolean }> {
+  return fetch(`${BASE_URL}/billing/subscription`, {
+    headers: { ...authHeaders() },
+  }).then(handle<{ subscription: Subscription; limits: PlanLimits; is_active: boolean }>)
+},
+
+createCheckout(interval: 'month' | 'year', currency: 'usd' | 'ngn'): Promise<{ redirect_url: string; access_code?: string }> {
+  return fetch(`${BASE_URL}/billing/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ interval, currency }),
+  }).then(handle<{ redirect_url: string; access_code?: string }>)
+},
+
+getBillingPortal(): Promise<{ url: string }> {
+  return fetch(`${BASE_URL}/billing/portal`, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+  }).then(handle<{ url: string }>)
+},
+
+verifyPaystackPayment(data: {
+  reference: string
+  plan: string
+  interval: string
+}): Promise<{ plan: string; status: string }> {
+  return fetch(`${BASE_URL}/billing/verify-paystack`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(data),
+  }).then(handle<{ plan: string; status: string }>)
+},
+cancelSubscription(): Promise<{
+  cancelled: boolean
+  cancel_at_period_end: boolean
+  access_until: string | null
+}> {
+  return fetch(`${BASE_URL}/billing/cancel`, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+  }).then(handle<{ cancelled: boolean; cancel_at_period_end: boolean; access_until: string | null }>)
+},
+}

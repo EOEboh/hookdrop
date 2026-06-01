@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/EOEboh/hookdrop/internal/billing"
 	"github.com/EOEboh/hookdrop/internal/email"
 	"github.com/EOEboh/hookdrop/internal/handler"
 	"github.com/EOEboh/hookdrop/internal/middleware"
@@ -20,7 +21,7 @@ import (
 func loadEnvFile(path string) {
 	f, err := os.Open(path)
 	if err != nil {
-		return // file doesn't exist: fine in production
+		return
 	}
 	defer f.Close()
 
@@ -36,7 +37,6 @@ func loadEnvFile(path string) {
 		}
 		key := strings.TrimSpace(parts[0])
 		val := strings.TrimSpace(parts[1])
-		// Only set if not already set: real env vars take priority
 		if os.Getenv(key) == "" {
 			os.Setenv(key, val)
 		}
@@ -46,6 +46,7 @@ func loadEnvFile(path string) {
 func main() {
 	loadEnvFile(".env.local")
 
+	// ── Core config
 	dbPath := getEnv("DB_PATH", "hookdrop.db")
 	allowedOrigin := getEnv("ALLOWED_ORIGIN", "http://localhost:5173")
 	port := getEnv("PORT", "8080")
@@ -54,11 +55,23 @@ func main() {
 	fromAddr := getEnv("EMAIL_FROM", "hookdrop <noreply@hookdrop.app>")
 	apiURL := getEnv("API_URL", "http://localhost:8080")
 	frontendURL := getEnv("FRONTEND_URL", "http://localhost:5173")
-
-	// Defaults: 30 token capacity, 5 refills/sec per IP
 	rlCapacity := getEnvFloat("RATE_LIMIT_CAPACITY", 30)
 	rlRefill := getEnvFloat("RATE_LIMIT_REFILL", 5)
 
+	// ── LemonSqueezy config (international users)
+	lsAPIKey := getEnv("LEMONSQUEEZY_API_KEY", "")
+	lsWebhookSecret := getEnv("LEMONSQUEEZY_WEBHOOK_SECRET", "")
+	lsStoreID := getEnv("LEMONSQUEEZY_STORE_ID", "")
+	lsVariantMonthly := getEnv("LEMONSQUEEZY_VARIANT_PRO_MONTHLY", "")
+	lsVariantAnnual := getEnv("LEMONSQUEEZY_VARIANT_PRO_ANNUAL", "")
+
+	// ── Paystack config (African users)
+	paystackSecretKey := getEnv("PAYSTACK_SECRET_KEY", "")
+	paystackWebhookSecret := getEnv("PAYSTACK_WEBHOOK_SECRET", "")
+	paystackPlanMonthly := getEnv("PAYSTACK_PLAN_PRO_MONTHLY", "")
+	paystackPlanAnnual := getEnv("PAYSTACK_PLAN_PRO_ANNUAL", "")
+
+	// ── Infrastructure
 	st, err := store.New(dbPath)
 	if err != nil {
 		log.Fatalf("failed to init store: %v", err)
@@ -72,6 +85,27 @@ func main() {
 	mgr := session.NewManager(st)
 	mgr.StartCleanup()
 
+	// ── Billing providers
+	lemonSqueezyProvider := billing.NewLemonSqueezyProvider(
+		lsAPIKey,
+		lsWebhookSecret,
+		lsStoreID,
+		billing.LemonSqueezyVariants{
+			ProMonthly: lsVariantMonthly,
+			ProAnnual:  lsVariantAnnual,
+		},
+	)
+
+	paystackProvider := billing.NewPaystackProvider(
+		paystackSecretKey,
+		paystackWebhookSecret,
+		billing.PaystackPlans{
+			ProMonthly: paystackPlanMonthly,
+			ProAnnual:  paystackPlanAnnual,
+		},
+	)
+
+	// ── Handlers
 	authHandler := &handler.AuthHandler{
 		Store:       st,
 		Emailer:     emailer,
@@ -80,23 +114,49 @@ func main() {
 		FrontendURL: frontendURL,
 	}
 
+	billingHandler := &handler.BillingHandler{
+		Store:        st,
+		LemonSqueezy: lemonSqueezyProvider,
+		Paystack:     paystackProvider,
+		AppURL:       frontendURL,
+	}
+
+	secretsHandler := &handler.SecretsHandler{Store: st}
 	requireAuth := middleware.Auth(jwtSecret)
 	inboxLimiter := middleware.InboxRateLimit(rateLimiter)
 
+	// ── Routes
 	mux := http.NewServeMux()
 
-	// Public auth routes
+	// Auth — public
 	mux.HandleFunc("/auth/request", authHandler.RequestLink)
 	mux.HandleFunc("/auth/verify", authHandler.VerifyLink)
 
-	// Protected routes
+	// Billing webhooks: public but signature-verified internally
+	mux.HandleFunc("/billing/webhook/lemonsqueezy", billingHandler.LemonSqueezyWebhook)
+	mux.HandleFunc("/billing/webhook/paystack", billingHandler.PaystackWebhook)
+
+	mux.Handle("/billing/verify-paystack",
+		requireAuth(http.HandlerFunc(billingHandler.VerifyPaystack)))
+
+	// Billing — authenticated
+	mux.Handle("/billing/subscription",
+		requireAuth(http.HandlerFunc(billingHandler.GetSubscription)))
+	mux.Handle("/billing/checkout",
+		requireAuth(http.HandlerFunc(billingHandler.CreateCheckout)))
+	mux.Handle("/billing/portal",
+		requireAuth(http.HandlerFunc(billingHandler.GetPortal)))
+	mux.Handle("/billing/cancel",
+		requireAuth(http.HandlerFunc(billingHandler.CancelSubscription)))
+
+	// Core — authenticated
 	mux.Handle("/sessions", requireAuth(&handler.SessionHandler{Manager: mgr}))
 	mux.Handle("/requests/", requireAuth(&handler.RequestsHandler{Store: st}))
 	mux.Handle("/replay", requireAuth(&handler.ReplayHandler{Store: st, Engine: replayEngine}))
 	mux.Handle("/events/", requireAuth(&handler.SSEHandler{Broadcaster: broadcaster, Store: st}))
 	mux.Handle("/endpoints", requireAuth(&handler.EndpointsHandler{Store: st}))
 
-	secretsHandler := &handler.SecretsHandler{Store: st}
+	// Endpoints + secrets — authenticated, routed by path shape
 	mux.Handle("/endpoints/", requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/secrets") {
 			secretsHandler.ServeHTTP(w, r)
@@ -105,12 +165,11 @@ func main() {
 		}
 	})))
 
-	// Inbox: public but rate limited
-	inboxHandler := &handler.InboxHandler{
+	// Inbox — public but rate limited
+	mux.Handle("/i/", inboxLimiter(&handler.InboxHandler{
 		Store:     st,
 		Broadcast: broadcaster.Broadcast,
-	}
-	mux.Handle("/i/", inboxLimiter(inboxHandler))
+	}))
 
 	log.Printf("hookdrop listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, middleware.CORS(mux, allowedOrigin)); err != nil {

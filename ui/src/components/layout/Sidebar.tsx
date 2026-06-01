@@ -6,6 +6,7 @@ import { EndpointList } from '../endpoints/EndpointList'
 import { CreateEndpointModal } from '../endpoints/CreateEndpointModal'
 import { useEndpoints } from '../../hooks/useEndpoints'
 import { PlusIcon } from '../ui/icons'
+import { useBilling } from '../../context/BillingContext'
 
 interface Props {
   session: Session
@@ -35,23 +36,37 @@ export function Sidebar({
   const [tab, setTab] = useState<Tab>('session')
   const [showModal, setShowModal] = useState(false)
   const { endpoints, createEndpoint, deleteEndpoint } = useEndpoints()
+  const { isPro } = useBilling()
 
   return (
     <aside className="w-80 min-w-[280px] flex flex-col border-r border-zinc-800 bg-zinc-950 h-screen sticky top-0">
 
-      {/* Logo */}
+{/* Logo */}
       <div className="px-4 py-4 border-b border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-lg">⚡</span>
           <span className="font-semibold text-zinc-100 tracking-tight">hookdrop</span>
         </div>
-        <button
-          onClick={onLogout}
-          className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-        >
-          Log out
-        </button>
+        <div className="flex items-center gap-3">
+          <a
+           href="/settings/billing"
+            className={`text-xs transition-colors ${
+              isPro
+                ? 'text-emerald-500 hover:text-emerald-400'
+                : 'text-zinc-600 hover:text-zinc-400'
+            }`}
+          >
+            {isPro ? '⚡ Pro' : 'Upgrade'}
+          </a>
+          <button
+            onClick={onLogout}
+            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+          >
+            Log out
+          </button>
+        </div>
       </div>
+      
 
       {/* Tabs */}
       <div className="flex border-b border-zinc-800">

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EOEboh/hookdrop/internal/billing"
 	"github.com/EOEboh/hookdrop/internal/endpoint"
 	"github.com/EOEboh/hookdrop/internal/middleware"
 	"github.com/EOEboh/hookdrop/internal/models"
@@ -48,6 +49,35 @@ func (h *EndpointsHandler) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *EndpointsHandler) create(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
+
+	// ── Entitlement check ────────────────────────────────────────────────────
+	sub, err := h.Store.GetSubscription(user.ID)
+	if err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+
+	limits := billing.GetLimits(sub.Plan)
+
+	if limits.MaxNamedEndpoints != -1 {
+		count, err := h.Store.CountUserEndpoints(user.ID)
+		if err != nil {
+			http.Error(w, "store error", http.StatusInternalServerError)
+			return
+		}
+		if count >= limits.MaxNamedEndpoints {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusPaymentRequired)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":        "endpoint_limit_reached",
+				"message":      "You have reached the named endpoint limit for your plan",
+				"current_plan": sub.Plan,
+				"limit":        limits.MaxNamedEndpoints,
+			})
+			return
+		}
+	}
+	// ─────────────────────────────────────────────────────────────────────────
 
 	var body struct {
 		Slug        string `json:"slug"`
