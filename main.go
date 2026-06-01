@@ -146,6 +146,8 @@ func main() {
 		requireAuth(http.HandlerFunc(billingHandler.CreateCheckout)))
 	mux.Handle("/billing/portal",
 		requireAuth(http.HandlerFunc(billingHandler.GetPortal)))
+	mux.Handle("/billing/cancel",
+		requireAuth(http.HandlerFunc(billingHandler.CancelSubscription)))
 
 	// Core — authenticated
 	mux.Handle("/sessions", requireAuth(&handler.SessionHandler{Manager: mgr}))

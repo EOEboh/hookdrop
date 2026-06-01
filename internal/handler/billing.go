@@ -413,3 +413,41 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		"trial_end": trialEnd,
 	})
 }
+
+// POST /billing/cancel
+func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r)
+
+	sub, err := h.Store.GetSubscription(user.ID)
+	if err != nil || sub.Plan == "free" || sub.ID == "" {
+		http.Error(w, "no active subscription", http.StatusBadRequest)
+		return
+	}
+
+	// Cancel at period end: user keeps access till then
+	if err := h.getProvider(sub.Currency).CancelSubscription(
+		r.Context(), sub.ProviderSubID,
+	); err != nil {
+		log.Printf("CancelSubscription error: %v", err)
+		http.Error(w, "cancellation failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Mark cancel_at_period_end in the database
+	sub.CancelAtPeriodEnd = true
+	sub.UpdatedAt = time.Now().UTC()
+	if err := h.Store.UpsertSubscription(sub); err != nil {
+		log.Printf("CancelSubscription upsert error: %v", err)
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("CancelSubscription: user=%s scheduled cancel at period end", user.ID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"cancelled":            true,
+		"cancel_at_period_end": true,
+		"access_until":         sub.CurrentPeriodEnd,
+	})
+}
