@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from 'react'
 import { api } from '../api/client'
@@ -37,14 +38,18 @@ const BillingContext = createContext<BillingContextValue | null>(null)
 function detectCurrency(): 'ngn' | 'usd' {
   const stored = localStorage.getItem('hookdrop_currency')
   if (stored === 'ngn' || stored === 'usd') return stored
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
-  const locale = navigator.language ?? ''
-  if (
-    tz.includes('Lagos') ||
-    tz.includes('Africa') ||
-    locale.includes('NG')
-  ) {
-    return 'ngn'
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
+    const locale = navigator.language ?? ''
+    if (
+      tz.includes('Lagos') ||
+      tz.includes('Africa') ||
+      locale.startsWith('en-NG')
+    ) {
+      return 'ngn'
+    }
+  } catch {
+    // Intl not available — default to usd
   }
   return 'usd'
 }
@@ -56,12 +61,13 @@ export function BillingProvider({
 }) {
   const [state, setState] = useState<BillingState>({
     subscription: null,
-    limits: null,
-    is_active: true,
-    loading: true,
+    limits:       null,
+    is_active:    false,
+    loading:      true,
   })
 
-  const currency = detectCurrency()
+  // detectCurrency is stable: compute once on mount
+  const currency = useMemo(() => detectCurrency(), [])
 
   const fetchSubscription = useCallback(async () => {
     try {
@@ -92,6 +98,8 @@ export function BillingProvider({
         ? import.meta.env.VITE_PAYSTACK_PLAN_PRO_ANNUAL
         : import.meta.env.VITE_PAYSTACK_PLAN_PRO_MONTHLY
 
+    // Amount satisfies react-paystack validation
+    // Paystack overrides this server-side with the plan price
     const amount = interval === 'year' ? 3360000 : 350000
 
     return {
@@ -108,6 +116,7 @@ export function BillingProvider({
     reference: string,
     interval: 'month' | 'year',
   ) {
+    // Small delay: gives Paystack time to finish processing
     await new Promise(resolve => setTimeout(resolve, 1500))
 
     try {
@@ -116,9 +125,8 @@ export function BillingProvider({
       console.error('Verify error (non-fatal):', err)
     }
 
-    // Refetch into the shared context — every subscriber updates
+    // Always refetch: upsert succeeded even if verify had issues
     await fetchSubscription()
-
     window.location.href = '/?upgraded=true'
   }
 
@@ -127,10 +135,13 @@ export function BillingProvider({
     window.location.href = result.url
   }
 
-  const isPro =
-    state.subscription?.plan === 'pro' && state.is_active
-  const isTrialing =
-    state.subscription?.status === 'trialing'
+  // isPro: plan is pro AND subscription is genuinely active
+  // Guard against loading state where is_active defaults to false
+  const isPro = !state.loading &&
+    state.subscription?.plan === 'pro' &&
+    state.is_active
+
+  const isTrialing = state.subscription?.status === 'trialing'
 
   return (
     <BillingContext.Provider
@@ -139,7 +150,7 @@ export function BillingProvider({
         isPro,
         isTrialing,
         currency,
-        refetch: fetchSubscription,
+        refetch:              fetchSubscription,
         startCheckout,
         getPaystackConfig,
         handlePaystackSuccess,
