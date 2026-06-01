@@ -634,26 +634,30 @@ func (s *Store) UpsertSubscription(sub *models.Subscription) error {
 	if sub.ID == "" {
 		sub.ID = uuid.NewString()
 	}
-	sub.UpdatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	sub.UpdatedAt = now
+	if sub.CreatedAt.IsZero() {
+		sub.CreatedAt = now
+	}
 
 	_, err := s.db.Exec(`
-        INSERT INTO subscriptions
-            (id, user_id, plan, provider, provider_customer_id, provider_sub_id,
-             status, current_period_end, trial_end, cancel_at_period_end,
-             currency, interval, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            plan                 = excluded.plan,
-            provider             = excluded.provider,
-            provider_customer_id = excluded.provider_customer_id,
-            provider_sub_id      = excluded.provider_sub_id,
-            status               = excluded.status,
-            current_period_end   = excluded.current_period_end,
-            trial_end            = excluded.trial_end,
-            cancel_at_period_end = excluded.cancel_at_period_end,
-            currency             = excluded.currency,
-            interval             = excluded.interval,
-            updated_at           = excluded.updated_at`,
+		INSERT INTO subscriptions
+			(id, user_id, plan, provider, provider_customer_id, provider_sub_id,
+			 status, current_period_end, trial_end, cancel_at_period_end,
+			 currency, interval, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET
+			plan                 = excluded.plan,
+			provider             = excluded.provider,
+			provider_customer_id = excluded.provider_customer_id,
+			provider_sub_id      = excluded.provider_sub_id,
+			status               = excluded.status,
+			current_period_end   = excluded.current_period_end,
+			trial_end            = excluded.trial_end,
+			cancel_at_period_end = excluded.cancel_at_period_end,
+			currency             = excluded.currency,
+			interval             = excluded.interval,
+			updated_at           = excluded.updated_at`,
 		sub.ID, sub.UserID, sub.Plan, sub.Provider,
 		sub.ProviderCustomerID, sub.ProviderSubID,
 		sub.Status, sub.CurrentPeriodEnd, sub.TrialEnd,
