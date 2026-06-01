@@ -175,7 +175,7 @@ export function PricingPage() {
               Manage subscription
             </button>
             <p className="text-xs text-zinc-600 text-center">
-              Cancel anytime — access continues until end of billing period.
+              Cancel anytime! Access continues until end of billing period.
             </p>
           </div>
         </div>

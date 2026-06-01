@@ -21,7 +21,6 @@ type BillingHandler struct {
 	AppURL       string
 }
 
-// getProvider routes to the correct billing provider based on currency
 func (h *BillingHandler) getProvider(currency string) billing.Provider {
 	if currency == "ngn" {
 		return h.Paystack
@@ -35,12 +34,16 @@ func (h *BillingHandler) GetSubscription(w http.ResponseWriter, r *http.Request)
 
 	sub, err := h.Store.GetSubscription(user.ID)
 	if err != nil {
+		log.Printf("GetSubscription error for user %s: %v", user.ID, err)
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}
 
 	limits := billing.GetLimits(sub.Plan)
 	isActive := billing.IsActive(sub.Status, sub.CurrentPeriodEnd)
+
+	log.Printf("GetSubscription: user=%s plan=%s status=%s is_active=%v",
+		user.ID, sub.Plan, sub.Status, isActive)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -55,8 +58,8 @@ func (h *BillingHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) 
 	user := middleware.GetUser(r)
 
 	var body struct {
-		Interval string `json:"interval"` // "month" or "year"
-		Currency string `json:"currency"` // "ngn" or "usd"
+		Interval string `json:"interval"`
+		Currency string `json:"currency"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -95,14 +98,45 @@ func (h *BillingHandler) GetPortal(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 
 	sub, err := h.Store.GetSubscription(user.ID)
-	if err != nil || sub.Provider == "" {
+	if err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+
+	// Guard: no active paid subscription
+	if sub.Plan == "free" || sub.ID == "" {
 		http.Error(w, "no active subscription", http.StatusBadRequest)
 		return
 	}
 
-	provider := h.getProvider(sub.Currency)
+	// Route by provider name stored on the subscription
+	// Falls back to currency-based routing if provider name is missing
+	var providerName string
+	switch sub.Provider {
+	case "paystack":
+		providerName = "paystack"
+	case "lemonsqueezy":
+		providerName = "lemonsqueezy"
+	default:
+		// Legacy rows may have event type stored instead of provider name
+		// Fall back to currency
+		if sub.Currency == "ngn" {
+			providerName = "paystack"
+		} else {
+			providerName = "lemonsqueezy"
+		}
+	}
+
+	var provider billing.Provider
+	if providerName == "paystack" {
+		provider = h.Paystack
+	} else {
+		provider = h.LemonSqueezy
+	}
+
 	url, err := provider.GetPortalURL(r.Context(), sub.ProviderCustomerID, h.AppURL)
 	if err != nil {
+		log.Printf("GetPortal error: %v", err)
 		http.Error(w, "portal error", http.StatusInternalServerError)
 		return
 	}
@@ -119,7 +153,6 @@ func (h *BillingHandler) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Lemonsqueezy sends the signature as X-Signature
 	sig := r.Header.Get("X-Signature")
 	event, err := h.LemonSqueezy.HandleWebhook(payload, sig)
 	if err != nil {
@@ -129,7 +162,7 @@ func (h *BillingHandler) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Requ
 	}
 
 	if event != nil {
-		if err := h.processWebhookEvent(event); err != nil {
+		if err := h.processWebhookEvent(event, "lemonsqueezy"); err != nil {
 			log.Printf("process lemonsqueezy event error: %v", err)
 		}
 	}
@@ -155,7 +188,7 @@ func (h *BillingHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request)
 	}
 
 	if event != nil {
-		if err := h.processWebhookEvent(event); err != nil {
+		if err := h.processWebhookEvent(event, "paystack"); err != nil {
 			log.Printf("process paystack event error: %v", err)
 		}
 	}
@@ -164,7 +197,13 @@ func (h *BillingHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"received": "true"})
 }
 
-func (h *BillingHandler) processWebhookEvent(event *billing.WebhookEvent) error {
+// processWebhookEvent now takes an explicit providerName so Provider is
+// stored correctly ("paystack" or "lemonsqueezy") instead of the event type
+// string ("subscription.created" etc.) which broke GetPortal routing.
+func (h *BillingHandler) processWebhookEvent(
+	event *billing.WebhookEvent,
+	providerName string,
+) error {
 	if event.UserID == "" {
 		log.Printf("webhook event missing user_id — skipping")
 		return nil
@@ -176,10 +215,15 @@ func (h *BillingHandler) processWebhookEvent(event *billing.WebhookEvent) error 
 		periodEnd = &t
 	}
 
+	plan := event.Plan
+	if event.Type == "subscription.canceled" {
+		plan = "free"
+	}
+
 	sub := &models.Subscription{
 		UserID:             event.UserID,
-		Plan:               event.Plan,
-		Provider:           event.Type,
+		Plan:               plan,
+		Provider:           providerName, // ← fixed: was event.Type
 		ProviderCustomerID: event.CustomerID,
 		ProviderSubID:      event.SubscriptionID,
 		Status:             event.Status,
@@ -190,15 +234,13 @@ func (h *BillingHandler) processWebhookEvent(event *billing.WebhookEvent) error 
 		CreatedAt:          time.Now().UTC(),
 	}
 
-	if event.Type == "subscription.canceled" {
-		sub.Plan = "free"
-	}
+	log.Printf("processWebhookEvent: user=%s plan=%s provider=%s status=%s",
+		sub.UserID, sub.Plan, sub.Provider, sub.Status)
 
 	return h.Store.UpsertSubscription(sub)
 }
 
 // POST /billing/verify-paystack
-// Called by frontend after successful Paystack inline payment
 func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 
@@ -230,7 +272,10 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// result.Data.Plan is RawMessage — accepts both string and object
+	// Plan field from Paystack verify can be either:
+	//   - a plain string:  "PLN_xxx"
+	//   - a nested object: {"plan_code":"PLN_xxx","interval":"monthly",...}
+	// json.RawMessage accepts both without erroring the whole decode.
 	var result struct {
 		Status  bool   `json:"status"`
 		Message string `json:"message"`
@@ -294,7 +339,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if lastErr != nil {
-		log.Printf("VerifyPaystack: retries exhausted: %v — proceeding anyway", lastErr)
+		log.Printf("VerifyPaystack: retries exhausted: %v — proceeding with upsert", lastErr)
 	}
 
 	now := time.Now().UTC()
@@ -309,7 +354,6 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 	customerCode := result.Data.Customer.CustomerCode
 	if customerCode == "" {
-		// Fallback — will be corrected when Paystack fires the webhook
 		customerCode = "paystack_" + body.Reference
 		log.Printf("VerifyPaystack: using fallback customer code for ref=%s", body.Reference)
 	}
@@ -317,7 +361,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	sub := &models.Subscription{
 		UserID:             user.ID,
 		Plan:               "pro",
-		Provider:           "paystack",
+		Provider:           "paystack", // ← always the provider name, not event type
 		ProviderCustomerID: customerCode,
 		ProviderSubID:      body.Reference,
 		Status:             "active",
@@ -328,8 +372,8 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		CreatedAt:          now,
 	}
 
-	log.Printf("VerifyPaystack: upserting — user=%s plan=pro customer=%s",
-		user.ID, customerCode)
+	log.Printf("VerifyPaystack: upserting — user=%s plan=pro customer=%s interval=%s",
+		user.ID, customerCode, body.Interval)
 
 	if err := h.Store.UpsertSubscription(sub); err != nil {
 		log.Printf("VerifyPaystack: upsert FAILED: %v", err)
