@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react'
 import { api } from '../api/client'
-import type { BillingState, PlanLimits, Subscription } from '../types'
+import type { BillingState } from '../types'
 
 interface BillingContextValue extends BillingState {
   isPro: boolean
