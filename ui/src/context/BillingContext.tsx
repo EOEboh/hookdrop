@@ -70,18 +70,36 @@ export function BillingProvider({
   const currency = useMemo(() => detectCurrency(), [])
 
   const fetchSubscription = useCallback(async () => {
-    try {
-      const data = await api.getSubscription()
-      setState({
-        subscription: data.subscription,
-        limits:       data.limits,
-        is_active:    data.is_active,
-        loading:      false,
-      })
-    } catch {
-      setState(s => ({ ...s, loading: false }))
-    }
-  }, [])
+  // No token means logged out: return default free state silently
+  const token = localStorage.getItem('hookdrop_token')
+  if (!token) {
+    setState({
+      subscription: null,
+      limits:       null,
+      is_active:    false,
+      loading:      false,
+    })
+    return
+  }
+
+  try {
+    const data = await api.getSubscription()
+    setState({
+      subscription: data.subscription,
+      limits:       data.limits,
+      is_active:    data.is_active,
+      loading:      false,
+    })
+  } catch {
+    // 401 or network error: treat as logged out, don't redirect
+    setState({
+      subscription: null,
+      limits:       null,
+      is_active:    false,
+      loading:      false,
+    })
+  }
+}, [])
 
   useEffect(() => {
     fetchSubscription()
