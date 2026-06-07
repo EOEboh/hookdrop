@@ -16,11 +16,13 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function handle<T>(res: Response): Promise<T> {
+async function handle<T>(res: Response, opts?: { silent401?: boolean }): Promise<T> {
   if (res.status === 401) {
-    // Token expired — clear it and reload to trigger login
-    localStorage.removeItem('hookdrop_token')
-    window.location.href = '/'
+    if (!opts?.silent401) {
+      localStorage.removeItem('hookdrop_token')
+      window.location.href = '/'
+    }
+    throw new Error('401: unauthorized')
   }
   if (!res.ok) {
     const text = await res.text()
@@ -140,11 +142,14 @@ deleteSecret(endpointId: string, secretId: string): Promise<void> {
     headers: { ...authHeaders() },
   }).then(res => { if (!res.ok) throw new Error(`${res.status}`) })
 },
-
-getSubscription(): Promise<{ subscription: Subscription; limits: PlanLimits; is_active: boolean }> {
+getSubscription(): Promise<{
+  subscription: Subscription
+  limits: PlanLimits
+  is_active: boolean
+}> {
   return fetch(`${BASE_URL}/billing/subscription`, {
     headers: { ...authHeaders() },
-  }).then(handle<{ subscription: Subscription; limits: PlanLimits; is_active: boolean }>)
+  }).then(res => handle(res, { silent401: true }))
 },
 
 createCheckout(interval: 'month' | 'year', currency: 'usd' | 'ngn'): Promise<{ redirect_url: string; access_code?: string }> {
