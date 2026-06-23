@@ -338,6 +338,9 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		log.Printf("VerifyPaystack: retries exhausted: %v — proceeding with upsert", lastErr)
 	}
 
+	log.Printf("VerifyPaystack: interval=%s amount=%d is_trial=%v",
+		body.Interval, result.Data.Amount, result.Data.Amount == 0)
+
 	now := time.Now().UTC()
 
 	// Detect trial: Paystack charges ₦0 for the first transaction on a plan with a trial
