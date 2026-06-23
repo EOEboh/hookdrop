@@ -36,6 +36,11 @@ const PRO_FEATURES = [
   '14-day free trial',
 ]
 
+const PRICE_DISPLAY = {
+  month: { amount: '₦3,500', suffix: '/mo after trial' },
+  year:  { amount: '₦33,600', suffix: '/yr after trial' },
+} as const
+
 function PaystackButton({
   interval,
   email,
@@ -52,7 +57,8 @@ function PaystackButton({
   const { getPaystackConfig } = useBilling()
   const config = getPaystackConfig(interval, email)
   const initializePayment = usePaystackPayment(config)
-  const prices = PLANS['ngn'][interval]
+
+  const display = PRICE_DISPLAY[interval]
 
   function handleClick() {
     setLoading(true)
@@ -73,12 +79,12 @@ function PaystackButton({
   return (
     <button
       onClick={handleClick}
-      disabled={loading || !email}
+      disabled={loading || !email || !config.publicKey || !config.plan}
       className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
     >
       {loading
         ? 'Processing…'
-        : `Start free trial — ${prices.price}${prices.period} after`
+        : `Start free trial: ${display.amount} ${display.suffix}`
       }
     </button>
   )
@@ -349,7 +355,7 @@ export function PricingPage() {
               >
                 {payLoading
                   ? 'Redirecting…'
-                  : `Start free trial — ${prices.price}${prices.period} after`
+                  : `Start free trial: ${prices.price}${prices.period} after`
                 }
               </button>
             )}
