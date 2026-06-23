@@ -110,25 +110,48 @@ export function BillingProvider({
     window.location.href = result.redirect_url
   }
 
-  function getPaystackConfig(interval: 'month' | 'year', email: string) {
-    const planCode =
-      interval === 'year'
-        ? import.meta.env.VITE_PAYSTACK_PLAN_PRO_ANNUAL
-        : import.meta.env.VITE_PAYSTACK_PLAN_PRO_MONTHLY
 
-    // Amount satisfies react-paystack validation
-    // Paystack overrides this server-side with the plan price
-    const amount = interval === 'year' ? 3360000 : 350000
 
-    return {
-      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY ?? '',
-      email,
-      amount,
-      plan:     planCode,
-      currency: 'NGN',
-      label:    'hookdrop Pro',
-    }
+const PAYSTACK_PRICES = {
+  month: 350000,   // ₦3,500
+  year:  3360000,  // ₦33,600
+} as const
+
+function getPaystackConfig(interval: 'month' | 'year', email: string) {
+  const isAnnual = interval === 'year'
+
+  const planCode = isAnnual
+    ? import.meta.env.VITE_PAYSTACK_PLAN_PRO_ANNUAL
+    : import.meta.env.VITE_PAYSTACK_PLAN_PRO_MONTHLY
+
+  const amount = PAYSTACK_PRICES[interval]
+
+
+  if (!planCode) {
+    console.error(
+      `[hookdrop] Missing env var: ${
+        isAnnual
+          ? 'VITE_PAYSTACK_PLAN_PRO_ANNUAL'
+          : 'VITE_PAYSTACK_PLAN_PRO_MONTHLY'
+      }`
+    )
   }
+
+  if (!import.meta.env.VITE_PAYSTACK_PUBLIC_KEY) {
+    console.error('[hookdrop] Missing env var: VITE_PAYSTACK_PUBLIC_KEY')
+  }
+
+  console.info(`[hookdrop] Paystack config: interval=${interval} plan=${planCode} amount=${amount}`)
+
+  return {
+    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY ?? '',
+    email,
+    amount,
+    plan:     planCode ?? '',
+    currency: 'NGN',
+    label:    `hookdrop Pro — ${isAnnual ? 'Annual' : 'Monthly'}`,
+  }
+}
 
   async function handlePaystackSuccess(
     reference: string,
