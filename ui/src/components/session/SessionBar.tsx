@@ -3,6 +3,7 @@ import { CopyButton } from '../ui/CopyButton'
 import { StatusDot } from '../ui/StatusDot'
 import { ClockIcon, RefreshCwIcon } from '../ui/icons'
 import { ttlLabel } from '../../lib/format'
+import { usePostHog } from '@posthog/react'
 
 interface Props {
   session: Session
@@ -14,6 +15,7 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
 export function SessionBar({ session, status, onReset }: Props) {
   const inboxUrl = `${BASE_URL}/i/${session.id}`
+  const posthog = usePostHog()
 
   return (
     <div className="px-4 py-3 border-b border-zinc-800 space-y-3">
@@ -31,7 +33,7 @@ export function SessionBar({ session, status, onReset }: Props) {
         <code className="flex-1 font-mono text-xs text-emerald-400 truncate select-all leading-relaxed">
           {inboxUrl}
         </code>
-        <CopyButton text={inboxUrl} iconOnly />
+        <CopyButton text={inboxUrl} iconOnly onCopy={() => posthog?.capture('inbox_url_copied')}/>
       </div>
 
       {/* TTL + reset */}

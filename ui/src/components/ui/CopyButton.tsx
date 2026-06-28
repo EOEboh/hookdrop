@@ -5,14 +5,18 @@ interface Props {
   text: string
   label?: string
   iconOnly?: boolean
+  onCopy?: () => void
 }
 
-export function CopyButton({ text, label = 'Copy', iconOnly = false }: Props) {
+export function CopyButton({ text, label = 'Copy', iconOnly = false, onCopy }: Props) {
   const [copied, setCopied] = useState(false)
 
   function copy() {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
+      if (onCopy) {
+        onCopy()
+      }
       setTimeout(() => setCopied(false), 2000)
     })
   }

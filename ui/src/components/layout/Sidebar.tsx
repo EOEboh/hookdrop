@@ -7,6 +7,7 @@ import { CreateEndpointModal } from '../endpoints/CreateEndpointModal'
 import { useEndpoints } from '../../hooks/useEndpoints'
 import { PlusIcon } from '../ui/icons'
 import { useBilling } from '../../context/BillingContext'
+import { usePostHog } from '@posthog/react'
 
 interface Props {
   session: Session
@@ -33,10 +34,17 @@ export function Sidebar({
   onSelect, onReset, onClear, onLogout,
   onSelectEndpoint, selectedEndpointId, activeEndpoint, onBackToTemporary, filters, onFilterChange, totalRequestCount,
 }: Props) {
+  const posthog = usePostHog()
   const [tab, setTab] = useState<Tab>('session')
   const [showModal, setShowModal] = useState(false)
   const { endpoints, createEndpoint, deleteEndpoint } = useEndpoints()
   const { isPro } = useBilling()
+
+
+   function handleLogout() {
+    posthog?.capture('user_logged_out')                 
+    onLogout()
+  }
 
   return (
     <aside className="w-80 min-w-[280px] flex flex-col border-r border-zinc-800 bg-zinc-950 h-screen sticky top-0">
@@ -59,7 +67,7 @@ export function Sidebar({
             {isPro ? '⚡ Pro' : 'Upgrade'}
           </a>
           <button
-            onClick={onLogout}
+            onClick={handleLogout}
             className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
           >
             Log out
