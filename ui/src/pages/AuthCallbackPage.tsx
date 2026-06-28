@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { Spinner } from '../components/ui/Spinner'
+import { usePostHog } from '@posthog/react'
 
 export function AuthCallbackPage() {
   const { login } = useAuth()
+  const posthog = usePostHog()
   const processed = useRef(false)
 
   useEffect(() => {
@@ -19,6 +21,7 @@ export function AuthCallbackPage() {
       // Store the token first, then hard-navigate
     
       login(token)
+      posthog?.capture('magic_link_verified') 
       window.location.replace('/')
     } else {
       // No token in the URL — something went wrong
