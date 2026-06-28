@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { api } from '../api/client'
 import type { CapturedRequest, ConnectionStatus, RequestFilters } from '../types'
+import { trackEvent } from '../lib/analytics'
 
 export function useRequestFeed(
   sessionId: string | null,
@@ -53,6 +54,14 @@ export function useRequestFeed(
         setTotalCount(prev => prev + 1)
 
         setRequests(prev => {
+          if (prev.length === 0) {
+          trackEvent('first_webhook_received', {           
+            method:   incoming.method,
+            verified: incoming.verified,
+            has_body: incoming.body_size > 0,
+          })
+        }
+
           if (passesClientFilter(incoming, filters)) {
             return [incoming, ...prev]
           }
