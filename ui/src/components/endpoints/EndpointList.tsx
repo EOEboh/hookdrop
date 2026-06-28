@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Endpoint } from '../../types'
 import { CopyButton } from '../ui/CopyButton'
 import { TrashIcon, TerminalIcon } from '../ui/icons'
+import { usePostHog } from '@posthog/react'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
@@ -13,7 +14,14 @@ interface Props {
 }
 
 export function EndpointList({ endpoints, selectedId, onSelect, onDelete }: Props) {
+  const posthog = usePostHog()
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+
+  function handleDelete(id: string) {
+    posthog?.capture('named_endpoint_deleted')
+    onDelete(id)
+    setConfirmDelete(null)
+  }
 
   if (endpoints.length === 0) {
     return (
@@ -45,18 +53,15 @@ export function EndpointList({ endpoints, selectedId, onSelect, onDelete }: Prop
             <div className="flex items-start justify-between gap-2">
 
               <div className="min-w-0 flex-1">
-                {/* Slug — prominent */}
                 <code className="text-xs font-mono font-medium text-emerald-400 truncate block">
                   /i/{ep.slug}
                 </code>
-                {/* Name — label */}
                 <p className="text-xs text-zinc-300 font-medium mt-0.5 truncate">{ep.name}</p>
                 {ep.description && (
                   <p className="text-[11px] text-zinc-600 mt-0.5 truncate">{ep.description}</p>
                 )}
               </div>
 
-              {/* Actions — revealed on hover */}
               <div
                 className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                 onClick={e => e.stopPropagation()}
@@ -65,7 +70,7 @@ export function EndpointList({ endpoints, selectedId, onSelect, onDelete }: Prop
                 {confirmDelete === ep.id ? (
                   <div className="flex gap-1">
                     <button
-                      onClick={() => { onDelete(ep.id); setConfirmDelete(null) }}
+                      onClick={() => handleDelete(ep.id)}  
                       className="text-[11px] px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
                     >
                       Delete

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import type { WebhookSecret } from '../../types'
+import { usePostHog } from '@posthog/react'
 
 const PROVIDERS = [
   { value: 'stripe',   label: 'Stripe',   hint: 'Your webhook signing secret (whsec_...)' },
@@ -10,6 +11,8 @@ const PROVIDERS = [
 ]
 
 export function SecretManager({ endpointId }: { endpointId: string }) {
+  const posthog = usePostHog()
+
   const [secrets, setSecrets]     = useState<WebhookSecret[]>([])
   const [provider, setProvider]   = useState('stripe')
   const [secret, setSecret]       = useState('')
@@ -32,6 +35,9 @@ export function SecretManager({ endpointId }: { endpointId: string }) {
     setError(null)
     try {
       const ws = await api.saveSecret(endpointId, { provider, secret: secret.trim() })
+       posthog?.capture('webhook_secret_added', {        
+        provider,
+      })
       setSecrets(prev => {
         // Replace if same provider already exists
         const filtered = prev.filter(s => s.provider !== provider)

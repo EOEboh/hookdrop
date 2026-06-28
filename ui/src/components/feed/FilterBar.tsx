@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { RequestFilters } from '../../types'
 import { SearchIcon, SlidersIcon, XIcon } from '../ui/icons'
+import { usePostHog } from '@posthog/react'
 
 const METHODS  = ['POST', 'GET', 'PUT', 'PATCH', 'DELETE']
 const VERIFIED = [
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export function FilterBar({ filters, onChange, resultCount, totalCount }: Props) {
+  const posthog   = usePostHog()
   const [expanded, setExpanded] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -46,7 +48,25 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
   const activeChipCount = [filters.method, filters.verified, filters.range].filter(Boolean).length
 
   function set(key: keyof RequestFilters, value: string) {
-    onChange({ ...filters, [key]: value === filters[key] ? '' : value })
+    const isToggleOn = value !== filters[key]           // true when turning a filter ON
+    const newFilters = { ...filters, [key]: isToggleOn ? value : '' }
+    onChange(newFilters)
+    if (isToggleOn) {
+      posthog?.capture('filter_applied', {              // add — only on activation
+        filter_type: key,
+        value,
+      })
+    }
+  }
+
+  // For the search input, fire on blur or Enter rather than every keystroke:
+  function handleSearchSubmit() {
+    if (filters.search.trim()) {
+      posthog?.capture('filter_applied', {              
+        filter_type: 'search',
+        value:       'text',
+      })
+    }
   }
 
   function clearAll() {
@@ -68,6 +88,8 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
             ref={searchRef}
             type="text"
             value={filters.search}
+            onKeyDown={e => e.key === 'Enter' && handleSearchSubmit()}  
+            onBlur={handleSearchSubmit}
             onChange={e => onChange({ ...filters, search: e.target.value })}
             placeholder="Search body..."
             className="flex-1 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"

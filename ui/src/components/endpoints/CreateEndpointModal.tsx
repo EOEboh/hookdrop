@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Endpoint } from '../../types'
 import { Portal } from '../ui/Portal'
 import { UpgradePrompt } from '../billing/UpgradePrompt'
+import { usePostHog } from '@posthog/react'
 
 interface Props {
   onClose: () => void
@@ -11,6 +12,8 @@ interface Props {
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
 export function CreateEndpointModal({ onClose, onCreate }: Props) {
+  const posthog = usePostHog()
+
   const [slug, setSlug]               = useState('')
   const [name, setName]               = useState('')
   const [description, setDescription] = useState('')
@@ -18,6 +21,8 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
   const [error, setError]             = useState<string | null>(null)
   const [slugError, setSlugError]     = useState<string | null>(null)
   const [limitReached, setLimitReached] = useState(false)
+
+  
 
   function validateSlugLocally(val: string): string | null {
     if (val.length < 3) return 'At least 3 characters'
@@ -43,6 +48,9 @@ export function CreateEndpointModal({ onClose, onCreate }: Props) {
 
     try {
       await onCreate({ slug, name: name.trim(), description: description.trim() || undefined })
+      posthog?.capture('named_endpoint_created', {      
+        has_description: !!description.trim(),
+      })
       onClose()
     } catch (err) {
       const message = err instanceof Error ? err.message : ''
