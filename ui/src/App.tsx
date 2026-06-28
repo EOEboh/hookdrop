@@ -9,9 +9,11 @@ import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { PricingPage } from './components/billing/PricingPage'
 import { Spinner } from './components/ui/Spinner'
 import { DEFAULT_FILTERS, type CapturedRequest, type Endpoint, type RequestFilters } from './types'
+import { usePostHog } from '@posthog/react'
 
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth()
+
 
   // Special routes handled before auth check 
   if (window.location.pathname === '/auth/callback') {
@@ -71,6 +73,7 @@ function BillingPageShell({ onLogout }: { onLogout: () => void }) {
 }
 
 function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
+  const posthog = usePostHog()
   const { session, loading, error, resetSession } = useSession()
   const [activeEndpoint, setActiveEndpoint]   = useState<Endpoint | null>(null)
   const [selectedRequest, setSelectedRequest] = useState<CapturedRequest | null>(null)
@@ -113,6 +116,15 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     )
   }
 
+   function handleSelectRequest(req: CapturedRequest) {
+    setSelectedRequest(req)
+    posthog?.capture('request_inspected', {             
+      method:   req.method,
+      verified: req.verified,
+      provider: req.provider,
+    })
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100">
 
@@ -141,7 +153,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           status={status}
           requests={requests}
           selectedId={selectedRequest?.id ?? null}
-          onSelect={setSelectedRequest}
+          onSelect={handleSelectRequest}
           onReset={() => { resetSession(); setSelectedRequest(null) }}
           onClear={clearRequests}
           onLogout={onLogout}
