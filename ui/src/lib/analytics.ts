@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 
-// Typed event names 
+// Only track in production 
+const isProd = import.meta.env.PROD
+
 export type AnalyticsEvent =
   | 'magic_link_requested'
   | 'magic_link_verified'
@@ -24,17 +26,18 @@ export type AnalyticsEvent =
   | 'trial_started'
   | 'subscription_cancelled'
 
-// Use this ONLY outside React components (auth callbacks, context, etc.)
-// Inside components use the usePostHog() hook from @posthog/react instead
 export function identifyUser(userId: string, email: string) {
+  if (!isProd) return
   posthog.identify(userId, { email })
 }
 
 export function resetUser() {
+  if (!isProd) return
   posthog.reset()
 }
 
 export function trackPageView(path: string) {
+  if (!isProd) return
   posthog.capture('$pageview', { $current_url: path })
 }
 
@@ -42,5 +45,6 @@ export function trackEvent(
   event: AnalyticsEvent,
   properties?: Record<string, unknown>,
 ) {
+  if (!isProd) return
   posthog.capture(event, properties)
 }
