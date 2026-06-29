@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePaystackPayment } from 'react-paystack'
 import { useBilling } from '../../context/BillingContext'
 import { useAuth } from '../../context/AuthContext'
 import { ManageSubscriptionPanel } from './ManageSubscriptionPanel'
 import { Spinner } from '../ui/Spinner'
+import { usePostHog } from '@posthog/react'
+
 
 const PLANS: Record<string, Record<string, {
   price: string; period: string; total: string | null
@@ -54,6 +56,7 @@ function PaystackButton({
   setLoading: (v: boolean) => void
   onSuccess: (ref: string, interval: 'month' | 'year') => void
 }) {
+  const posthog = usePostHog() 
   const { getPaystackConfig } = useBilling()
   const config = getPaystackConfig(interval, email)
   const initializePayment = usePaystackPayment(config)
@@ -62,6 +65,11 @@ function PaystackButton({
 
   function handleClick() {
     setLoading(true)
+     posthog?.capture('checkout_started', {              
+      provider: 'paystack',
+      interval,
+      currency: 'ngn',
+    })
     initializePayment({
       onSuccess: (response: {
         reference: string
@@ -97,6 +105,14 @@ export function PricingPage() {
     handlePaystackSuccess,
   } = useBilling()
   const { user } = useAuth()
+  const posthog = usePostHog()
+
+  useEffect(() => {
+    posthog?.capture('pricing_page_viewed', {           
+      currency,
+      already_pro: isPro,
+    })
+  }, []) 
 
   const [interval, setInterval]           = useState<'month' | 'year'>('month')
   const [payLoading, setPayLoading]        = useState(false)
@@ -115,6 +131,11 @@ export function PricingPage() {
 
   async function handleLSCheckout() {
     setPayLoading(true)
+      posthog?.capture('checkout_started', {              
+      provider: 'lemonsqueezy',
+      interval,
+      currency: 'usd',
+    })
     try {
       await startCheckout(interval)
     } catch {

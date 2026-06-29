@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { AuthState, AuthUser } from '../types'
+import { identifyUser, resetUser } from '../lib/analytics'
 
 interface AuthContextValue extends AuthState {
   login: (token: string) => void
@@ -49,16 +50,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 
   const login = useCallback((token: string) => {
-    localStorage.setItem('hookdrop_token', token)
-    const user = parseToken(token)
-    setState({ user, token, loading: false })
-  }, [])
+  localStorage.setItem('hookdrop_token', token)
+  const user = parseToken(token)
+  setState({ user, token, loading: false })
+  if (user) {
+    identifyUser(user.id, user.email)
+  }
+}, [])
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('hookdrop_token')
-    localStorage.removeItem('hookdrop_session')
-    setState({ user: null, token: null, loading: false })
-  }, [])
+const logout = useCallback(() => {
+  localStorage.removeItem('hookdrop_token')
+  localStorage.removeItem('hookdrop_session')
+  setState({ user: null, token: null, loading: false })
+  resetUser()
+}, [])
+
+ 
 
   return (
     <AuthContext.Provider value={{ ...state, login, logout }}>

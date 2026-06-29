@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { api } from '../api/client'
+import { usePostHog } from '@posthog/react'
 
 interface LoginPageProps {
   errorHint?: string | null
 }
 
 export function LoginPage({errorHint}: LoginPageProps) {
+  const posthog = usePostHog()
+
   const [email, setEmail]   = useState('')
   const [sent, setSent]     = useState(false)
   const [loading, setLoading] = useState(false)
@@ -17,6 +20,7 @@ export function LoginPage({errorHint}: LoginPageProps) {
     setError(null)
     try {
       await api.requestMagicLink(email)
+      posthog?.capture('magic_link_requested')
       setSent(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')

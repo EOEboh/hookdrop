@@ -1,20 +1,36 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { CapturedRequest } from '../../types'
 import { useReplay } from '../../hooks/useReplay'
 import { safeParseBody, tryPrettyPrint } from '../../lib/json'
 import { ReplayResponse } from './ReplayResponse'
 import { Spinner } from '../ui/Spinner'
 import { ArrowRightIcon } from '../ui/icons'
+import { usePostHog } from '@posthog/react'
 
 export function ReplayPanel({ request }: { request: CapturedRequest }) {
   const rawBody = safeParseBody(request.body)
   const { pretty } = tryPrettyPrint(rawBody)
+  const posthog = usePostHog()
 
   const [targetUrl, setTargetUrl] = useState('http://localhost:3000')
   const [body, setBody] = useState(pretty)
   const { replay, loading, response, error, reset } = useReplay()
 
+
+  useEffect(() => {
+    if (response) {
+      posthog?.capture('replay_succeeded', {
+        status:     response.status,
+        latency_ms: response.latency_ms,
+      })
+    }
+  }, [response])
+
   async function handleReplay() {
+    posthog?.capture('replay_fired', {
+      has_body_override:   body !== pretty,
+      target_is_localhost: targetUrl.includes('localhost'),
+    })
     await replay(request, targetUrl, body)
   }
 
@@ -75,7 +91,7 @@ export function ReplayPanel({ request }: { request: CapturedRequest }) {
         </div>
       )}
 
-      {/* Response — visually separated */}
+      {/* Response */}
       {response && (
         <div className="space-y-3">
           <div className="border-t border-zinc-800/60" />

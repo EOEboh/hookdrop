@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useBilling } from '../../context/BillingContext'
+import { usePostHog } from '@posthog/react'
+
 
 interface Props {
   feature: string
@@ -7,8 +9,13 @@ interface Props {
 }
 
 export function UpgradePrompt({ feature, description }: Props) {
+  const posthog = usePostHog()
   const { currency, startCheckout } = useBilling()
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    posthog?.capture('upgrade_prompt_seen', { feature }) 
+  }, [feature])
 
   const price = currency === 'ngn' ? '₦3,500/mo' : '$7/mo'
 
