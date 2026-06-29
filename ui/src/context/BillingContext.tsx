@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { api } from '../api/client'
 import type { BillingState } from '../types'
+import { trackEvent } from '../lib/analytics'
 
 interface BillingContextValue extends BillingState {
   isPro: boolean
@@ -161,7 +162,20 @@ function getPaystackConfig(interval: 'month' | 'year', email: string) {
     await new Promise(resolve => setTimeout(resolve, 1500))
 
     try {
-      await api.verifyPaystackPayment({ reference, plan: 'pro', interval })
+    const result = await api.verifyPaystackPayment({ reference, plan: 'pro', interval })
+
+    trackEvent('checkout_completed', {                  
+      provider:  'paystack',
+      interval,
+      is_trial:  result.is_trial,
+    })
+
+    if (result.is_trial) {
+      trackEvent('trial_started', {                     
+        provider: 'paystack',
+        interval,
+      })
+    }
     } catch (err) {
       console.error('Verify error (non-fatal):', err)
     }

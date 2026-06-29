@@ -8,12 +8,11 @@ import './index.css'
 
 const posthogOptions = {
   api_host:          import.meta.env.VITE_POSTHOG_HOST,
-  defaults:          '2026-01-30',  // PostHog recommended SDK defaults
-  capture_pageview:  false,         // we handle this manually — SPA has no real page loads
+  capture_pageview:  false,
   capture_pageleave: true,
-  autocapture:       false,         // intentional tracking only — keeps event volume lean
+  autocapture:       false,
   session_recording: {
-    maskAllInputs: true,            // never record passwords, secrets, or API keys
+    maskAllInputs: true,
     maskInputOptions: {
       password: true,
       email:    true,

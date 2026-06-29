@@ -171,7 +171,8 @@ verifyPaystackPayment(data: {
   reference: string
   plan: string
   interval: string
-}): Promise<{ plan: string; status: string }> {
+}): Promise<{ plan: string; status: string; is_trial:  boolean
+  trial_end: string | null }> {
   return fetch(`${BASE_URL}/billing/verify-paystack`, {
     method: 'POST',
     headers: {
@@ -179,7 +180,8 @@ verifyPaystackPayment(data: {
       ...authHeaders(),
     },
     body: JSON.stringify(data),
-  }).then(handle<{ plan: string; status: string }>)
+  }).then(handle<{ plan: string; status: string; is_trial:  boolean
+  trial_end: string | null }>)
 },
 cancelSubscription(): Promise<{
   cancelled: boolean

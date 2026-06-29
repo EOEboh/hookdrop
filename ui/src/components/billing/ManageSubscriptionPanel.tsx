@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useBilling } from '../../context/BillingContext'
 import { api } from '../../api/client'
+import { usePostHog } from '@posthog/react'
 
 export function ManageSubscriptionPanel({
   onClose,
 }: {
   onClose: () => void
 }) {
+  const posthog = usePostHog()
   const { subscription, isTrialing, refetch } = useBilling()
   const [cancelling, setCancelling] = useState(false)
   const [cancelled, setCancelled]   = useState(false)
@@ -29,6 +31,11 @@ export function ManageSubscriptionPanel({
     setError(null)
     try {
       await api.cancelSubscription()
+      posthog?.capture('subscription_cancelled', {      
+        provider:  subscription?.provider,
+        interval:  subscription?.interval,
+        was_trial: isTrialing,
+      })
       await refetch()
       setCancelled(true)
     } catch (err) {
