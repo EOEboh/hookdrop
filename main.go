@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EOEboh/hookdrop/internal/billing"
 	"github.com/EOEboh/hookdrop/internal/email"
@@ -121,12 +122,19 @@ func main() {
 		AppURL:       frontendURL,
 	}
 
+	healthHandler := &handler.HealthHandler{
+		Store:     st,
+		StartedAt: time.Now().UTC(),
+		Version:   getEnv("APP_VERSION", "dev"),
+	}
 	secretsHandler := &handler.SecretsHandler{Store: st}
 	requireAuth := middleware.Auth(jwtSecret)
 	inboxLimiter := middleware.InboxRateLimit(rateLimiter)
 
 	// ── Routes
 	mux := http.NewServeMux()
+
+	mux.Handle("/health", healthHandler)
 
 	// Auth — public
 	mux.HandleFunc("/auth/request", authHandler.RequestLink)
