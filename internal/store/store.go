@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,25 @@ import (
 
 type Store struct {
 	db *sql.DB
+}
+
+func (s *Store) Ping() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := s.db.PingContext(ctx); err != nil {
+		return fmt.Errorf("connection: %w", err)
+	}
+
+	// A real query catches issues Ping() alone misses — locked file,
+	// corrupted schema, disk full. SELECT 1 against sqlite_master is
+	// the lightest possible real query.
+	var result int
+	if err := s.db.QueryRowContext(ctx, "SELECT 1").Scan(&result); err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+
+	return nil
 }
 
 func New(dbPath string) (*Store, error) {
