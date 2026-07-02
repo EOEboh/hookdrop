@@ -159,3 +159,24 @@ func min(a, b float64) float64 {
 	}
 	return b
 }
+
+// AuthIPRateLimit wraps an http.HandlerFunc (rather than http.Handler)
+// since auth routes are registered with mux.HandleFunc, not mux.Handle.
+func AuthIPRateLimit(rl *RateLimiter) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			ip := extractClientIP(r)
+
+			if !rl.allow(ip) {
+				log.Printf("auth rate limit exceeded: ip=%s path=%s", ip, r.URL.Path)
+				w.Header().Set("Retry-After", "60")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				w.Write([]byte(`{"error":"too many requests, please slow down"}`))
+				return
+			}
+
+			next(w, r)
+		}
+	}
+}
