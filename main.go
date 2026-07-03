@@ -106,13 +106,17 @@ func main() {
 		},
 	)
 
+	emailLimiter := middleware.NewEmailRateLimiter(5)        // 5 per email per hour
+	authIPLimiter := middleware.NewRateLimiter(10, 10.0/600) // 10 capacity, refills to 10 every 10 min
+
 	// ── Handlers
 	authHandler := &handler.AuthHandler{
-		Store:       st,
-		Emailer:     emailer,
-		JWTSecret:   jwtSecret,
-		APIURL:      apiURL,
-		FrontendURL: frontendURL,
+		Store:        st,
+		Emailer:      emailer,
+		JWTSecret:    jwtSecret,
+		APIURL:       apiURL,
+		FrontendURL:  frontendURL,
+		EmailLimiter: emailLimiter,
 	}
 
 	billingHandler := &handler.BillingHandler{
@@ -136,8 +140,9 @@ func main() {
 
 	mux.Handle("/health", healthHandler)
 
+	authRateLimit := middleware.AuthIPRateLimit(authIPLimiter)
 	// Auth — public
-	mux.HandleFunc("/auth/request", authHandler.RequestLink)
+	mux.HandleFunc("/auth/request", authRateLimit(authHandler.RequestLink))
 	mux.HandleFunc("/auth/verify", authHandler.VerifyLink)
 
 	// Billing webhooks: public but signature-verified internally

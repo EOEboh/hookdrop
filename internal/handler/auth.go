@@ -9,15 +9,17 @@ import (
 
 	"github.com/EOEboh/hookdrop/internal/auth"
 	"github.com/EOEboh/hookdrop/internal/email"
+	"github.com/EOEboh/hookdrop/internal/middleware"
 	"github.com/EOEboh/hookdrop/internal/store"
 )
 
 type AuthHandler struct {
-	Store       *store.Store
-	Emailer     *email.Sender
-	JWTSecret   string
-	APIURL      string // https://api.hookdrop.app
-	FrontendURL string // https://hookdrop.app
+	Store        *store.Store
+	Emailer      *email.Sender
+	JWTSecret    string
+	APIURL       string
+	FrontendURL  string
+	EmailLimiter *middleware.EmailRateLimiter
 }
 
 // POST /auth/request — send a magic link
@@ -37,6 +39,18 @@ func (h *AuthHandler) RequestLink(w http.ResponseWriter, r *http.Request) {
 
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 
+	// Guard: only rate limit if limiter is initialised
+	if h.EmailLimiter != nil && !h.EmailLimiter.Allow(body.Email) {
+		log.Printf("auth: email rate limit hit for %s", body.Email)
+		w.Header().Set("Retry-After", "3600")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Too many login attempts for this email. Please try again in an hour.",
+		})
+		return
+	}
+
 	// Get or create the user
 	user, err := h.Store.GetOrCreateUser(body.Email)
 	if err != nil {
@@ -53,7 +67,6 @@ func (h *AuthHandler) RequestLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// RequestLink — use APIURL so the link hits the Go verify endpoint
 	magicURL := fmt.Sprintf("%s/auth/verify?token=%s", h.APIURL, link.Token)
 
 	// Send the email
@@ -65,7 +78,7 @@ func (h *AuthHandler) RequestLink(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Magic link sent — check your email",
+		"message": "Magic link sent! Check your email",
 	})
 }
 
@@ -94,7 +107,6 @@ func (h *AuthHandler) VerifyLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// VerifyLink — use FrontendURL so after verification user lands on the React app
 	redirectURL := fmt.Sprintf("%s/auth/callback#token=%s", h.FrontendURL, jwt)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
