@@ -1,54 +1,80 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { api } from '../api/client'
-import type { CapturedRequest, ConnectionStatus } from '../types'
+import type { CapturedRequest, ConnectionStatus, RequestFilters } from '../types'
+import { trackEvent } from '../lib/analytics'
 
-export function useRequestFeed(sessionId: string | null) {
-  const [requests, setRequests] = useState<CapturedRequest[]>([])
-  const [status, setStatus] = useState<ConnectionStatus>('connecting')
+export function useRequestFeed(
+  sessionId: string | null,
+  filters: RequestFilters,
+) {
+  const [requests, setRequests]   = useState<CapturedRequest[]>([])
+  const [status, setStatus]       = useState<ConnectionStatus>('connecting')
+  const [totalCount, setTotalCount] = useState(0)
   const esRef = useRef<EventSource | null>(null)
+
+  const fetchHistory = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      const history = await api.getRequests(sessionId, filters)
+      setRequests(history ?? [])
+
+      const isFiltered = filters.search || filters.method || filters.verified || filters.range
+      if (isFiltered) {
+        const all = await api.getRequests(sessionId, {
+          search: '', method: '', verified: '', range: '',
+        })
+        setTotalCount(all?.length ?? 0)
+      } else {
+        setTotalCount(history?.length ?? 0)
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, [sessionId, filters])
 
   useEffect(() => {
     if (!sessionId) return
 
     let cancelled = false
 
-    async function init() {
-      // 1. Fetch request history first
-      try {
-        const history = await api.getRequests(sessionId)
-        if (!cancelled) {
-          setRequests(history ?? [])
-        }
-      } catch {
-        // History fetch failing is non-fatal — SSE will still work
-      }
+    fetchHistory()
 
+    const es = new EventSource(api.sseUrl(sessionId))
+    esRef.current = es
+
+    es.addEventListener('connected', () => {
+      if (!cancelled) setStatus('live')
+    })
+
+    es.addEventListener('request', (e: MessageEvent) => {
       if (cancelled) return
+      try {
+        const incoming: CapturedRequest = JSON.parse(e.data)
 
-      // 2. Open SSE connection
-      const es = new EventSource(api.sseUrl(sessionId))
-      esRef.current = es
+        setTotalCount(prev => prev + 1)
 
-      es.addEventListener('connected', () => {
-        if (!cancelled) setStatus('live')
-      })
-
-      es.addEventListener('request', (e: MessageEvent) => {
-        if (cancelled) return
-        try {
-          const incoming: CapturedRequest = JSON.parse(e.data)
-          setRequests((prev) => [incoming, ...prev]) // newest first
-        } catch {
-          // malformed event — ignore
+        setRequests(prev => {
+          if (prev.length === 0) {
+          trackEvent('first_webhook_received', {           
+            method:   incoming.method,
+            verified: incoming.verified,
+            has_body: incoming.body_size > 0,
+          })
         }
-      })
 
-      es.onerror = () => {
-        if (!cancelled) setStatus('disconnected')
+          if (passesClientFilter(incoming, filters)) {
+            return [incoming, ...prev]
+          }
+          return prev
+        })
+      } catch {
+        // Malformed event
       }
-    }
+    })
 
-    init()
+    es.onerror = () => {
+      if (!cancelled) setStatus('disconnected')
+    }
 
     return () => {
       cancelled = true
@@ -57,9 +83,36 @@ export function useRequestFeed(sessionId: string | null) {
     }
   }, [sessionId])
 
+  useEffect(() => {
+    if (!sessionId) return
+    fetchHistory()
+  }, [fetchHistory])
+
   function clearRequests() {
     setRequests([])
+    setTotalCount(0)
   }
 
-  return { requests, status, clearRequests }
+  return { requests, status, clearRequests, totalCount }
+}
+
+function passesClientFilter(req: CapturedRequest, filters: RequestFilters): boolean {
+  if (filters.method && req.method !== filters.method) return false
+
+  if (filters.verified) {
+    const status = req.verified ?? 'unverified'
+    if (status !== filters.verified) return false
+  }
+
+  if (filters.search) {
+    const body = typeof req.body === 'string' ? req.body : ''
+    if (!body.toLowerCase().includes(filters.search.toLowerCase())) return false
+  }
+
+  if (filters.range) {
+    const ms = { '1h': 3600000, '24h': 86400000, '7d': 604800000 }[filters.range]
+    if (ms && Date.now() - new Date(req.received_at).getTime() > ms) return false
+  }
+
+  return true
 }

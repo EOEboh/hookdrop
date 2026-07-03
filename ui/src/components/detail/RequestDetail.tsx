@@ -3,16 +3,18 @@ import { MetaBar } from './MetaBar'
 import { HeadersTable } from './HeadersTable'
 import { BodyViewer } from './BodyViewer'
 import { ReplayPanel } from '../replay/ReplayPanel'
+import { SecretManager } from '../endpoints/SecretManager'
 
-interface Props {
-  request: CapturedRequest
+interface SectionProps {
+  title: string
+  children: React.ReactNode
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: SectionProps) {
   return (
     <div>
-      <div className="px-6 py-2 bg-zinc-900/40 border-b border-zinc-800">
-        <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+      <div className="px-6 py-2.5 bg-zinc-900/30 border-y border-zinc-800/60 flex items-center">
+        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
           {title}
         </span>
       </div>
@@ -21,7 +23,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-export function RequestDetail({ request }: Props) {
+export function RequestDetail({ request }: { request: CapturedRequest }) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <MetaBar request={request} />
@@ -34,6 +36,13 @@ export function RequestDetail({ request }: Props) {
       <Section title="Replay">
         <ReplayPanel request={request} />
       </Section>
+      {request.session_id && (
+        <Section title="Verification">
+          <div className="px-6 py-4">
+            <SecretManager endpointId={request.session_id} />
+          </div>
+        </Section>
+      )}
     </div>
   )
 }

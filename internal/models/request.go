@@ -11,6 +11,17 @@ type CapturedRequest struct {
 	BodySize   int               `json:"body_size"`
 	RemoteIP   string            `json:"remote_ip"`
 	ReceivedAt time.Time         `json:"received_at"`
+	Verified   string            `json:"verified"` // "verified", "failed", "unverified"
+	Provider   string            `json:"provider"` // which provider matched
+}
+
+type Endpoint struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	Slug        string    `json:"slug"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type Session struct {
@@ -31,4 +42,58 @@ type ReplayResponse struct {
 	Headers   map[string]string `json:"headers"`
 	Body      string            `json:"body"`
 	LatencyMs int64             `json:"latency_ms"`
+}
+
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type MagicLink struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Used      bool      `json:"used"`
+}
+
+type WebhookSecret struct {
+	ID         string    `json:"id"`
+	EndpointID string    `json:"endpoint_id"`
+	Provider   string    `json:"provider"`
+	Secret     string    `json:"-"` // never serialise the secret to JSON
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// VerificationResult is stored with each captured request
+type VerificationResult struct {
+	Status   string `json:"status"`   // "verified", "failed", "unverified"
+	Provider string `json:"provider"` // which provider verified it
+	Reason   string `json:"reason"`   // human-readable explanation
+}
+
+type Subscription struct {
+	ID                 string     `json:"id"`
+	UserID             string     `json:"user_id"`
+	Plan               string     `json:"plan"`
+	Provider           string     `json:"provider"`
+	ProviderCustomerID string     `json:"-"`
+	ProviderSubID      string     `json:"-"`
+	Status             string     `json:"status"`
+	CurrentPeriodEnd   *time.Time `json:"current_period_end"`
+	TrialEnd           *time.Time `json:"trial_end"`
+	CancelAtPeriodEnd  bool       `json:"cancel_at_period_end"`
+	Currency           string     `json:"currency"`
+	Interval           string     `json:"interval"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type PlanLimit struct {
+	MaxNamedEndpoints   int
+	MaxRequestsPerMonth int
+	HistoryDays         int
+	MaxSecrets          int
+	HasFiltering        bool
 }

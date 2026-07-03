@@ -17,10 +17,11 @@ type SSEHandler struct {
 }
 
 func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 1. Verify the session exists
+
 	sessionID := strings.TrimPrefix(r.URL.Path, "/events/")
 	sessionID = strings.Trim(sessionID, "/")
-	if sessionID == "" || !h.Store.SessionExists(sessionID) {
+
+	if sessionID == "" || !h.Store.IdentifierExists(sessionID) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}

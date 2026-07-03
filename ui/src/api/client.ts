@@ -1,43 +1,196 @@
-import type { CapturedRequest, ReplayRequest, ReplayResponse, Session } from '../types'
+import type {
+  CapturedRequest, Endpoint, PlanLimits, ReplayRequest,
+  ReplayResponse, RequestFilters, Session,
+  Subscription,
+  WebhookSecret
+} from '../types'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
-async function handle<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    // Try to extract structured error message from the response body
-    try {
-      const json = await res.json()
-      throw new Error(json.error ?? `${res.status}: ${res.statusText}`)
-    } catch (e) {
-      if (e instanceof SyntaxError) {
-        // Response wasn't JSON — fall back to plain text
-        const text = await res.text()
-        throw new Error(text || `${res.status}: ${res.statusText}`)
-      }
-      throw e
+function getToken(): string | null {
+  return localStorage.getItem('hookdrop_token')
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+async function handle<T>(res: Response, opts?: { silent401?: boolean }): Promise<T> {
+  if (res.status === 401) {
+    if (!opts?.silent401) {
+      localStorage.removeItem('hookdrop_token')
+      window.location.href = '/'
     }
+    throw new Error('401: unauthorized')
+  }
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status}: ${text}`)
   }
   return res.json() as Promise<T>
 }
 
 export const api = {
-  createSession(): Promise<Session> {
-    return fetch(`${BASE_URL}/sessions`, { method: 'POST' }).then(handle<Session>)
+  requestMagicLink(email: string): Promise<{ message: string }> {
+    return fetch(`${BASE_URL}/auth/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }).then(handle<{ message: string }>)
   },
 
-  getRequests(sessionId: string): Promise<CapturedRequest[]> {
-    return fetch(`${BASE_URL}/requests/${sessionId}`).then(handle<CapturedRequest[]>)
+  createSession(): Promise<Session> {
+    return fetch(`${BASE_URL}/sessions`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    }).then(handle<Session>)
   },
+
+  getRequests(sessionId: string, filters?: Partial<RequestFilters>): Promise<CapturedRequest[]> {
+  const params = new URLSearchParams()
+
+  if (filters?.search)   params.set('search',   filters.search)
+  if (filters?.method)   params.set('method',   filters.method)
+  if (filters?.verified) params.set('verified', filters.verified)
+  if (filters?.range)    params.set('range',    filters.range)
+
+  const qs = params.toString()
+  const url = `${BASE_URL}/requests/${sessionId}${qs ? `?${qs}` : ''}`
+
+  return fetch(url, {
+    headers: { ...authHeaders() },
+  }).then(handle<CapturedRequest[]>)
+},
 
   replay(payload: ReplayRequest): Promise<ReplayResponse> {
     return fetch(`${BASE_URL}/replay`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
       body: JSON.stringify(payload),
     }).then(handle<ReplayResponse>)
   },
 
   sseUrl(sessionId: string): string {
-    return `${BASE_URL}/events/${sessionId}`
+    const token = getToken()
+    // Pass token as query param for SSE since EventSource doesn't support headers
+    return `${BASE_URL}/events/${sessionId}?token=${token}`
   },
+
+  getEndpoints(): Promise<Endpoint[]> {
+  return fetch(`${BASE_URL}/endpoints`, {
+    headers: { ...authHeaders() },
+  }).then(handle<Endpoint[]>)
+},
+
+createEndpoint(data: {
+  slug: string
+  name: string
+  description?: string
+}): Promise<Endpoint> {
+  return fetch(`${BASE_URL}/endpoints`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(data),
+  }).then(handle<Endpoint>)
+},
+
+deleteEndpoint(id: string): Promise<void> {
+  return fetch(`${BASE_URL}/endpoints/${id}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  }).then(res => {
+    if (!res.ok) throw new Error(`${res.status}`)
+  })
+},
+
+checkSlug(slug: string): Promise<{ available: boolean }> {
+  return fetch(`${BASE_URL}/endpoints/check-slug?slug=${encodeURIComponent(slug)}`, {
+    headers: { ...authHeaders() },
+  }).then(handle<{ available: boolean }>)
+},
+
+getSecrets(endpointId: string): Promise<WebhookSecret[]> {
+  return fetch(`${BASE_URL}/endpoints/${endpointId}/secrets`, {
+    headers: { ...authHeaders() },
+  }).then(handle<WebhookSecret[]>)
+},
+
+saveSecret(endpointId: string, data: {
+  provider: string
+  secret: string
+}): Promise<WebhookSecret> {
+  return fetch(`${BASE_URL}/endpoints/${endpointId}/secrets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(data),
+  }).then(handle<WebhookSecret>)
+},
+
+deleteSecret(endpointId: string, secretId: string): Promise<void> {
+  return fetch(`${BASE_URL}/endpoints/${endpointId}/secrets/${secretId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  }).then(res => { if (!res.ok) throw new Error(`${res.status}`) })
+},
+getSubscription(): Promise<{
+  subscription: Subscription
+  limits: PlanLimits
+  is_active: boolean
+}> {
+  return fetch(`${BASE_URL}/billing/subscription`, {
+    headers: { ...authHeaders() },
+  }).then(res => handle(res, { silent401: true }))
+},
+
+createCheckout(interval: 'month' | 'year', currency: 'usd' | 'ngn'): Promise<{ redirect_url: string; access_code?: string }> {
+  return fetch(`${BASE_URL}/billing/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ interval, currency }),
+  }).then(handle<{ redirect_url: string; access_code?: string }>)
+},
+
+getBillingPortal(): Promise<{ url: string }> {
+  return fetch(`${BASE_URL}/billing/portal`, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+  }).then(handle<{ url: string }>)
+},
+
+verifyPaystackPayment(data: {
+  reference: string
+  plan: string
+  interval: string
+}): Promise<{ plan: string; status: string; is_trial:  boolean
+  trial_end: string | null }> {
+  return fetch(`${BASE_URL}/billing/verify-paystack`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(data),
+  }).then(handle<{ plan: string; status: string; is_trial:  boolean
+  trial_end: string | null }>)
+},
+cancelSubscription(): Promise<{
+  cancelled: boolean
+  cancel_at_period_end: boolean
+  access_until: string | null
+}> {
+  return fetch(`${BASE_URL}/billing/cancel`, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+  }).then(handle<{ cancelled: boolean; cancel_at_period_end: boolean; access_until: string | null }>)
+},
 }

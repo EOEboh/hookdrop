@@ -13,7 +13,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o hookdrop ./main.go
 
 # Run stage
 FROM --platform=linux/amd64 alpine:3.21
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates sqlite
 
 WORKDIR /app
 COPY --from=builder /app/hookdrop .
