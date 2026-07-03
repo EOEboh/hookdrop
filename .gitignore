@@ -1,3 +1,11 @@
+ cloudflare/workers-autoconfig
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+
 # Logs
 logs
 *.log
@@ -27,3 +35,4 @@ ui/.env
 # env files
 .env.local    
 .env    
+
