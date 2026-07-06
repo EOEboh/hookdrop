@@ -16,19 +16,19 @@ const RANGES = [
 ]
 
 const METHOD_CHIP_COLOURS: Record<string, string> = {
-  GET:    'bg-blue-500/10 text-blue-400 border-blue-500/30',
-  POST:   'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+  GET:    'bg-sky-500/10 text-sky-400 border-sky-500/30',
+  POST:   'bg-indigo-500/10 text-indigo-400 border-indigo-500/30',
   PUT:    'bg-amber-500/10 text-amber-400 border-amber-500/30',
   PATCH:  'bg-orange-500/10 text-orange-400 border-orange-500/30',
-  DELETE: 'bg-red-500/10 text-red-400 border-red-500/30',
+  DELETE: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
 }
 
 const METHOD_BTN_ACTIVE: Record<string, string> = {
-  GET:    'bg-blue-500/10 text-blue-400 border-blue-500/30',
-  POST:   'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+  GET:    'bg-sky-500/10 text-sky-400 border-sky-500/30',
+  POST:   'bg-indigo-500/10 text-indigo-400 border-indigo-500/30',
   PUT:    'bg-amber-500/10 text-amber-400 border-amber-500/30',
   PATCH:  'bg-orange-500/10 text-orange-400 border-orange-500/30',
-  DELETE: 'bg-red-500/10 text-red-400 border-red-500/30',
+  DELETE: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
 }
 
 interface Props {
@@ -78,12 +78,12 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
   const rangeLabel    = RANGES.find(r => r.value === filters.range)?.label ?? ''
 
   return (
-    <div className="border-b border-zinc-800 bg-zinc-950">
+    <div className="border-b border-border bg-base">
 
       {/* Search row */}
       <div className="flex items-center gap-2 px-3 py-2">
-        <div className="flex-1 flex items-center gap-2 bg-zinc-900 rounded-lg px-3 py-1.5 border border-transparent focus-within:border-zinc-700 transition-colors">
-          <SearchIcon className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+        <div className="flex-1 flex items-center gap-2 bg-surface rounded-lg px-3 py-1.5 border border-transparent focus-within:border-border-strong transition-colors duration-200 ease-(--ease-considered)">
+          <SearchIcon className="w-3.5 h-3.5 text-faint shrink-0" />
           <input
             ref={searchRef}
             type="text"
@@ -92,12 +92,12 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
             onBlur={handleSearchSubmit}
             onChange={e => onChange({ ...filters, search: e.target.value })}
             placeholder="Search body..."
-            className="flex-1 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+            className="flex-1 bg-transparent text-xs text-ink placeholder-faint focus:outline-none"
           />
           {filters.search && (
             <button
               onClick={() => onChange({ ...filters, search: '' })}
-              className="text-zinc-600 hover:text-zinc-400 transition-colors"
+              className="text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
             >
               <XIcon className="w-3 h-3" />
             </button>
@@ -107,16 +107,16 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
         {/* Filter toggle */}
         <button
           onClick={() => setExpanded(e => !e)}
-          className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+          className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors duration-200 ease-(--ease-considered) border ${
             expanded || hasActiveChips
-              ? 'bg-emerald-600/15 text-emerald-400 border-emerald-500/20'
-              : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+              ? 'bg-indigo-600/15 text-indigo-400 border-indigo-500/20'
+              : 'bg-surface border-border text-muted hover:text-ink hover:border-border-strong'
           }`}
         >
           <SlidersIcon className="w-3.5 h-3.5" />
           Filters
           {activeChipCount > 0 && (
-            <span className="min-w-[18px] h-[18px] flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px] font-bold px-1">
+            <span className="min-w-[18px] h-[18px] flex items-center justify-center bg-indigo-600 text-white rounded-full text-[10px] font-bold px-1">
               {activeChipCount}
             </span>
           )}
@@ -129,8 +129,8 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
           {filters.method && (
             <button
               onClick={() => set('method', filters.method)}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-mono font-medium hover:opacity-70 transition-opacity ${
-                METHOD_CHIP_COLOURS[filters.method] ?? 'bg-zinc-800 text-zinc-400 border-zinc-700'
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-mono font-medium transition-opacity duration-200 ease-(--ease-considered) hover:opacity-70 ${
+                METHOD_CHIP_COLOURS[filters.method] ?? 'bg-surface text-muted border-border-strong'
               }`}
             >
               {filters.method}
@@ -140,7 +140,7 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
           {filters.verified && (
             <button
               onClick={() => set('verified', filters.verified)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-[11px] text-zinc-400 font-medium hover:opacity-70 transition-opacity"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border-strong bg-surface text-[11px] text-muted font-medium hover:opacity-70 transition-opacity duration-200 ease-(--ease-considered)"
             >
               {verifiedLabel}
               <XIcon className="w-2.5 h-2.5" />
@@ -149,7 +149,7 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
           {filters.range && (
             <button
               onClick={() => set('range', filters.range)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-[11px] text-zinc-400 font-medium hover:opacity-70 transition-opacity"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border-strong bg-surface text-[11px] text-muted font-medium hover:opacity-70 transition-opacity duration-200 ease-(--ease-considered)"
             >
               {rangeLabel}
               <XIcon className="w-2.5 h-2.5" />
@@ -160,11 +160,11 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
 
       {/* Expanded filter panels */}
       {expanded && (
-        <div className="border-t border-zinc-800/60 px-3 pt-3 pb-3 space-y-3">
+        <div className="border-t border-border/60 px-3 pt-3 pb-3 space-y-3 animate-fade-in">
 
           {/* Method */}
           <div className="space-y-1.5">
-            <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">
+            <span className="text-[10px] font-semibold text-faint uppercase tracking-widest">
               Method
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -172,10 +172,10 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
                 <button
                   key={m}
                   onClick={() => set('method', m)}
-                  className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors border ${
+                  className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors duration-200 ease-(--ease-considered) border ${
                     filters.method === m
-                      ? `${METHOD_BTN_ACTIVE[m] ?? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30'}`
-                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                      ? `${METHOD_BTN_ACTIVE[m] ?? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30'}`
+                      : 'bg-surface border-border text-muted hover:text-ink hover:border-border-strong'
                   }`}
                 >
                   {m}
@@ -186,7 +186,7 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
 
           {/* Verification */}
           <div className="space-y-1.5">
-            <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">
+            <span className="text-[10px] font-semibold text-faint uppercase tracking-widest">
               Verification
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -194,10 +194,10 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
                 <button
                   key={v.value}
                   onClick={() => set('verified', v.value)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border ${
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors duration-200 ease-(--ease-considered) border ${
                     filters.verified === v.value
-                      ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30'
-                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                      ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30'
+                      : 'bg-surface border-border text-muted hover:text-ink hover:border-border-strong'
                   }`}
                 >
                   {v.label}
@@ -208,7 +208,7 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
 
           {/* Date range */}
           <div className="space-y-1.5">
-            <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">
+            <span className="text-[10px] font-semibold text-faint uppercase tracking-widest">
               Time range
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -216,10 +216,10 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
                 <button
                   key={r.value}
                   onClick={() => set('range', r.value)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors border ${
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors duration-200 ease-(--ease-considered) border ${
                     filters.range === r.value
-                      ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30'
-                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                      ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30'
+                      : 'bg-surface border-border text-muted hover:text-ink hover:border-border-strong'
                   }`}
                 >
                   {r.label}
@@ -233,8 +233,8 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
 
       {/* Results summary */}
       {isFiltered && (
-        <div className="px-3 py-1.5 border-t border-zinc-800/60 flex items-center justify-between">
-          <span className="text-[11px] text-zinc-600">
+        <div className="px-3 py-1.5 border-t border-border/60 flex items-center justify-between">
+          <span className="text-[11px] text-faint">
             {resultCount === totalCount
               ? `${resultCount} request${resultCount !== 1 ? 's' : ''}`
               : `${resultCount} of ${totalCount}`
@@ -242,7 +242,7 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
           </span>
           <button
             onClick={clearAll}
-            className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors"
+            className="text-[11px] text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
           >
             Clear all
           </button>

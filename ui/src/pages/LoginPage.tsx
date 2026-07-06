@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 import { usePostHog } from '@posthog/react'
+import { CheckCircleIcon } from '../components/ui/icons'
+import { LogoMark } from '../components/ui/Logo'
 
 interface LoginPageProps {
   errorHint?: string | null
@@ -31,17 +33,19 @@ export function LoginPage({errorHint}: LoginPageProps) {
 
   if (sent) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
+      <div className="min-h-screen bg-base flex items-center justify-center p-6">
         <div className="max-w-sm w-full text-center space-y-4">
-          <div className="text-4xl">📬</div>
-          <h2 className="text-zinc-100 font-semibold text-lg">Check your email</h2>
-          <p className="text-zinc-400 text-sm">
-            We sent a login link to <span className="text-zinc-200">{email}</span>.
+          <div className="w-12 h-12 rounded-xl bg-surface border border-border flex items-center justify-center mx-auto">
+            <CheckCircleIcon className="w-5 h-5 text-indigo-400" />
+          </div>
+          <h2 className="text-ink font-semibold text-lg">Check your email</h2>
+          <p className="text-muted text-sm">
+            We sent a login link to <span className="text-ink">{email}</span>.
             It expires in 15 minutes.
           </p>
           <button
             onClick={() => setSent(false)}
-            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            className="text-xs text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
           >
             Use a different email
           </button>
@@ -51,13 +55,13 @@ export function LoginPage({errorHint}: LoginPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-base flex items-center justify-center p-6">
       <div className="max-w-sm w-full space-y-6">
 
         <div className="text-center space-y-2">
-          <div className="text-3xl">⚡</div>
-          <h1 className="text-zinc-100 font-semibold text-xl tracking-tight">hookdrop</h1>
-          <p className="text-zinc-500 text-sm">Inspect and replay webhooks in real time</p>
+          <LogoMark size="lg" className="mx-auto" />
+          <h1 className="text-ink font-semibold text-xl tracking-tight">hookdrop</h1>
+          <p className="text-muted text-sm">Inspect and replay webhooks in real time</p>
         </div>
 
 
@@ -68,7 +72,7 @@ export function LoginPage({errorHint}: LoginPageProps) {
             onChange={e => setEmail(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSubmit()}
             placeholder="you@example.com"
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors"
+            className="w-full bg-surface border border-border-strong rounded-lg px-4 py-3 text-sm text-ink placeholder-faint focus:outline-none focus:border-indigo-500 transition-colors duration-200 ease-(--ease-considered)"
             autoFocus
           />
             {errorHint === 'invalid_link' && (
@@ -79,7 +83,7 @@ export function LoginPage({errorHint}: LoginPageProps) {
           <button
             onClick={handleSubmit}
             disabled={loading || !email}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm py-3 rounded-lg transition-colors"
+            className="w-full bg-indigo-500 hover:bg-indigo-400 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm py-3 rounded-lg transition-all duration-200 ease-(--ease-considered)"
           >
             {loading ? 'Sending…' : 'Send login link'}
           </button>
@@ -89,7 +93,7 @@ export function LoginPage({errorHint}: LoginPageProps) {
           <p className="text-xs text-red-400 text-center">{error}</p>
         )}
 
-        <p className="text-xs text-zinc-600 text-center">
+        <p className="text-xs text-faint text-center">
           No password. No account setup. Just your email.
         </p>
       </div>

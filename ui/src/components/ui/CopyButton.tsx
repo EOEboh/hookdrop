@@ -26,10 +26,10 @@ export function CopyButton({ text, label = 'Copy', iconOnly = false, onCopy }: P
       <button
         onClick={copy}
         title={copied ? 'Copied!' : label}
-        className={`p-1.5 rounded-md transition-all ${
+        className={`p-1.5 rounded-md transition-all duration-200 ease-(--ease-considered) active:scale-90 ${
           copied
-            ? 'text-emerald-400 bg-emerald-500/10'
-            : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+            ? 'text-emerald-400 bg-emerald-500/10 scale-105'
+            : 'text-muted hover:text-ink hover:bg-surface-hover'
         }`}
       >
         {copied
@@ -43,10 +43,10 @@ export function CopyButton({ text, label = 'Copy', iconOnly = false, onCopy }: P
   return (
     <button
       onClick={copy}
-      className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-all ${
+      className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition-all duration-200 ease-(--ease-considered) active:scale-95 ${
         copied
           ? 'text-emerald-400 bg-emerald-500/10'
-          : 'text-zinc-400 bg-zinc-800 hover:bg-zinc-700 hover:text-zinc-200'
+          : 'text-muted bg-surface hover:bg-surface-hover hover:text-ink'
       }`}
     >
       {copied ? (

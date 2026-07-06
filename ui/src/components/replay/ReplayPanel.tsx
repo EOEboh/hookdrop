@@ -39,28 +39,28 @@ export function ReplayPanel({ request }: { request: CapturedRequest }) {
 
       {/* Target URL */}
       <div className="space-y-1.5">
-        <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest block">
+        <label className="text-[11px] font-semibold text-muted uppercase tracking-widest block">
           Target URL
         </label>
         <input
           type="text"
           value={targetUrl}
           onChange={(e) => { setTargetUrl(e.target.value); reset() }}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm font-mono text-zinc-200 focus:outline-none focus:border-zinc-600 transition-colors placeholder-zinc-600"
+          className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm font-mono text-ink focus:outline-none focus:border-border-strong transition-colors duration-200 ease-(--ease-considered) placeholder-faint"
           placeholder="http://localhost:3000/webhook"
         />
       </div>
 
       {/* Editable body */}
       <div className="space-y-1.5">
-        <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest block">
+        <label className="text-[11px] font-semibold text-muted uppercase tracking-widest block">
           Body
         </label>
         <textarea
           value={body}
           onChange={(e) => { setBody(e.target.value); reset() }}
           rows={6}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono text-zinc-300 focus:outline-none focus:border-zinc-600 transition-colors resize-none leading-relaxed placeholder-zinc-600"
+          className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-ink focus:outline-none focus:border-border-strong transition-colors duration-200 ease-(--ease-considered) resize-none leading-relaxed placeholder-faint"
         />
       </div>
 
@@ -68,7 +68,7 @@ export function ReplayPanel({ request }: { request: CapturedRequest }) {
       <button
         onClick={handleReplay}
         disabled={loading || !targetUrl}
-        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+        className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 active:bg-indigo-600 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-all duration-200 ease-(--ease-considered)"
       >
         {loading ? (
           <>
@@ -94,7 +94,7 @@ export function ReplayPanel({ request }: { request: CapturedRequest }) {
       {/* Response */}
       {response && (
         <div className="space-y-3">
-          <div className="border-t border-zinc-800/60" />
+          <div className="border-t border-border/60" />
           <ReplayResponse response={response} />
         </div>
       )}

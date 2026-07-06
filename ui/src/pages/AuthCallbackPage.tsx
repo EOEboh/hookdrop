@@ -31,9 +31,9 @@ export function AuthCallbackPage() {
   }, [login])
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-4">
+    <div className="min-h-screen bg-base flex flex-col items-center justify-center gap-4">
       <Spinner size={6} />
-      <p className="text-zinc-400 text-sm">Logging you in…</p>
+      <p className="text-muted text-sm">Logging you in…</p>
     </div>
   )
 }

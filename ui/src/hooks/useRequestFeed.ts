@@ -10,6 +10,7 @@ export function useRequestFeed(
   const [requests, setRequests]   = useState<CapturedRequest[]>([])
   const [status, setStatus]       = useState<ConnectionStatus>('connecting')
   const [totalCount, setTotalCount] = useState(0)
+  const [newIds, setNewIds]       = useState<Set<string>>(new Set())
   const esRef = useRef<EventSource | null>(null)
 
   const fetchHistory = useCallback(async () => {
@@ -63,6 +64,17 @@ export function useRequestFeed(
         }
 
           if (passesClientFilter(incoming, filters)) {
+            // Mark as freshly-arrived so the list can play an entrance
+            // animation, then clear the flag once it has had time to run.
+            setNewIds(ids => new Set(ids).add(incoming.id))
+            setTimeout(() => {
+              setNewIds(ids => {
+                if (!ids.has(incoming.id)) return ids
+                const next = new Set(ids)
+                next.delete(incoming.id)
+                return next
+              })
+            }, 600)
             return [incoming, ...prev]
           }
           return prev
@@ -91,9 +103,10 @@ export function useRequestFeed(
   function clearRequests() {
     setRequests([])
     setTotalCount(0)
+    setNewIds(new Set())
   }
 
-  return { requests, status, clearRequests, totalCount }
+  return { requests, status, clearRequests, totalCount, newIds }
 }
 
 function passesClientFilter(req: CapturedRequest, filters: RequestFilters): boolean {

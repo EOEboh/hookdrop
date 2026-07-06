@@ -3,18 +3,18 @@ import type { VerificationStatus } from '../../types'
 const config = {
   verified: {
     label: 'Verified',
-    className: 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20',
+    className: 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20 animate-glow-in',
     dotClass: 'bg-emerald-400',
   },
   failed: {
     label: 'Failed',
-    className: 'bg-red-500/10 text-red-400 ring-red-500/20',
+    className: 'bg-red-500/10 text-red-400 ring-red-500/20 animate-shake-soft',
     dotClass: 'bg-red-400',
   },
   unverified: {
     label: 'Unverified',
-    className: 'bg-zinc-500/10 text-zinc-500 ring-zinc-500/20',
-    dotClass: 'bg-zinc-600',
+    className: 'bg-faint/10 text-faint ring-faint/20',
+    dotClass: 'bg-faint',
   },
 }
 

@@ -29,19 +29,19 @@ export function UpgradePrompt({ feature, description }: Props) {
   }
 
   return (
-    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+    <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-3">
       <div className="space-y-1">
-        <p className="text-sm font-medium text-zinc-200">{feature}</p>
-        <p className="text-xs text-zinc-500">{description}</p>
+        <p className="text-sm font-medium text-ink">{feature}</p>
+        <p className="text-xs text-muted">{description}</p>
       </div>
       <button
         onClick={handleUpgrade}
         disabled={loading}
-        className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+        className="w-full py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 active:scale-[0.98] disabled:opacity-50 text-white text-xs font-medium transition-all duration-200 ease-(--ease-considered)"
       >
         {loading ? 'Redirecting…' : `Upgrade to Pro — ${price}`}
       </button>
-      <p className="text-[11px] text-zinc-600 text-center">14-day free trial · Cancel anytime</p>
+      <p className="text-[11px] text-faint text-center">14-day free trial · Cancel anytime</p>
     </div>
   )
 }
