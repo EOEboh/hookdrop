@@ -66,6 +66,14 @@ export function Sidebar({
           >
             {isPro ? '⚡ Pro' : 'Upgrade'}
           </a>
+          <a
+           href="https://status.hookdrop.app"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+    >
+      Status
+    </a>
           <button
             onClick={handleLogout}
             className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
