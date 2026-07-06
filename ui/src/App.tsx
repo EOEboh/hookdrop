@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { PricingPage } from './components/billing/PricingPage'
 import { Spinner } from './components/ui/Spinner'
+import { Logo, LogoMark } from './components/ui/Logo'
 import { DEFAULT_FILTERS, type CapturedRequest, type Endpoint, type RequestFilters } from './types'
 import { usePostHog } from '@posthog/react'
 
@@ -54,10 +55,7 @@ function BillingPageShell({ onLogout }: { onLogout: () => void }) {
           >
             ← Back
           </button>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⚡</span>
-            <span className="font-semibold text-ink tracking-tight">hookdrop</span>
-          </div>
+          <Logo size="sm" />
         </div>
         <button
           onClick={onLogout}
@@ -135,7 +133,9 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       {showUpgradeBanner && (
         <div className="flex items-center justify-between gap-4 px-5 py-2.5 bg-indigo-600 text-white text-sm shrink-0">
           <div className="flex items-center gap-3">
-            <span className="font-semibold">⚡ You're on hookdrop Pro</span>
+            <span className="font-semibold flex items-center gap-1.5">
+              <LogoMark size="sm" /> You're on hookdrop Pro
+            </span>
             <span className="text-indigo-100 text-xs hidden sm:block">
               Unlimited named endpoints, 50k requests/month, and 90 day history are now active.
             </span>

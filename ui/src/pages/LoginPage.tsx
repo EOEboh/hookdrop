@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../api/client'
 import { usePostHog } from '@posthog/react'
 import { CheckCircleIcon } from '../components/ui/icons'
+import { LogoMark } from '../components/ui/Logo'
 
 interface LoginPageProps {
   errorHint?: string | null
@@ -58,7 +59,7 @@ export function LoginPage({errorHint}: LoginPageProps) {
       <div className="max-w-sm w-full space-y-6">
 
         <div className="text-center space-y-2">
-          <div className="text-3xl">⚡</div>
+          <LogoMark size="lg" className="mx-auto" />
           <h1 className="text-ink font-semibold text-xl tracking-tight">hookdrop</h1>
           <p className="text-muted text-sm">Inspect and replay webhooks in real time</p>
         </div>

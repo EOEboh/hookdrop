@@ -16,6 +16,10 @@
   --color-muted:          #a29cb3;
   --color-faint:          #6b6578;
 
+  /* Brand mark gradient */
+  --color-brand:          #7e14ff;
+  --color-brand-2:        #4f46e5;
+
   /* Shared easing for all micro-interactions */
   --ease-considered: cubic-bezier(0.4, 0, 0.2, 1);
 

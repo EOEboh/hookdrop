@@ -8,6 +8,7 @@ import { useEndpoints } from '../../hooks/useEndpoints'
 import { PlusIcon } from '../ui/icons'
 import { useBilling } from '../../context/BillingContext'
 import { usePostHog } from '@posthog/react'
+import { Logo } from '../ui/Logo'
 
 interface Props {
   session: Session
@@ -61,10 +62,7 @@ export function Sidebar({
 
 {/* Logo */}
       <div className="px-4 py-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">⚡</span>
-          <span className="font-semibold text-ink tracking-tight">hookdrop</span>
-        </div>
+        <Logo size="sm" />
         <div className="flex items-center gap-3">
           <a
            href="/settings/billing"
