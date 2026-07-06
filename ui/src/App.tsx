@@ -10,8 +10,15 @@ import { PricingPage } from './components/billing/PricingPage'
 import { Spinner } from './components/ui/Spinner'
 import { DEFAULT_FILTERS, type CapturedRequest, type Endpoint, type RequestFilters } from './types'
 import { usePostHog } from '@posthog/react'
+import { PrivacyPage } from './pages/PrivacyPage'
+import { TermsPage } from './pages/TermsPage'
 
 export default function App() {
+    if (window.location.pathname === '/privacy') return <PrivacyPage />
+  if (window.location.pathname === '/terms')   return <TermsPage />
+
+  if (window.location.pathname === '/auth/callback') return <AuthCallbackPage />
+
   const { user, loading: authLoading, logout } = useAuth()
 
 
