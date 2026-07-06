@@ -48,19 +48,19 @@ export function ManageSubscriptionPanel({
   if (cancelled) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg bg-zinc-800 px-4 py-4 text-center space-y-2">
-          <p className="text-sm font-medium text-zinc-200">
+        <div className="rounded-lg bg-surface-hover px-4 py-4 text-center space-y-2">
+          <p className="text-sm font-medium text-ink">
             Subscription cancelled
           </p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             Your Pro access continues until{' '}
-            <span className="text-zinc-300">{renewalDate}</span>.
+            <span className="text-ink">{renewalDate}</span>.
             After that you'll move to the free plan automatically.
           </p>
         </div>
         <button
           onClick={onClose}
-          className="w-full py-2 rounded-lg border border-zinc-700 text-zinc-400 text-sm hover:text-zinc-200 transition-colors"
+          className="w-full py-2 rounded-lg border border-border-strong text-muted text-sm hover:text-ink transition-colors duration-200 ease-(--ease-considered)"
         >
           Close
         </button>
@@ -72,9 +72,9 @@ export function ManageSubscriptionPanel({
     <div className="space-y-5">
 
       {/* Current status */}
-      <div className="rounded-lg bg-zinc-800/60 px-4 py-3 space-y-2.5">
+      <div className="rounded-lg bg-surface-hover/60 px-4 py-3 space-y-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-zinc-500">Status</span>
+          <span className="text-xs text-muted">Status</span>
           <span className={`text-xs font-medium ${
             isTrialing ? 'text-amber-400' : 'text-emerald-400'
           }`}>
@@ -82,14 +82,14 @@ export function ManageSubscriptionPanel({
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-xs text-zinc-500">Plan</span>
-          <span className="text-xs text-zinc-300 font-mono">
+          <span className="text-xs text-muted">Plan</span>
+          <span className="text-xs text-ink font-mono">
             hookdrop Pro ·{' '}
             {subscription?.interval === 'year' ? 'Annual' : 'Monthly'}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-muted">
             {subscription?.cancel_at_period_end
               ? 'Access until'
               : isTrialing
@@ -97,7 +97,7 @@ export function ManageSubscriptionPanel({
               : 'Next billing date'
             }
           </span>
-          <span className="text-xs text-zinc-300">
+          <span className="text-xs text-ink">
             {isTrialing ? trialEndDate : renewalDate}
           </span>
         </div>
@@ -114,11 +114,11 @@ export function ManageSubscriptionPanel({
           <button
             onClick={handleCancel}
             disabled={cancelling}
-            className="w-full py-2 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 text-sm transition-colors disabled:opacity-50"
+            className="w-full py-2 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 text-sm transition-colors duration-200 ease-(--ease-considered) disabled:opacity-50"
           >
             {cancelling ? 'Cancelling…' : 'Cancel subscription'}
           </button>
-          <p className="text-[11px] text-zinc-600 text-center">
+          <p className="text-[11px] text-faint text-center">
             You keep Pro access until the end of your current period.
           </p>
         </div>
@@ -132,7 +132,7 @@ export function ManageSubscriptionPanel({
 
       <button
         onClick={onClose}
-        className="w-full py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 text-sm transition-colors"
+        className="w-full py-2 rounded-lg border border-border-strong text-muted hover:text-ink text-sm transition-colors duration-200 ease-(--ease-considered)"
       >
         Close
       </button>

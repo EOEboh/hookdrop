@@ -5,7 +5,8 @@ import { FilterBar } from './FilterBar'
 
 interface Props {
   requests: CapturedRequest[]
-  allCount: number   
+  newIds: Set<string>
+  allCount: number
   selectedId: string | null
   onSelect: (req: CapturedRequest) => void
   filters: RequestFilters
@@ -13,7 +14,7 @@ interface Props {
 }
 
 export function RequestList({
-  requests, allCount, selectedId, onSelect, filters, onFilterChange,
+  requests, newIds, allCount, selectedId, onSelect, filters, onFilterChange,
 }: Props) {
   const isFiltered = Object.values(filters).some(Boolean)
 
@@ -30,8 +31,8 @@ export function RequestList({
         {requests.length === 0 ? (
           isFiltered ? (
             <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-              <p className="text-zinc-400 text-sm font-medium mb-1">No matching requests</p>
-              <p className="text-zinc-600 text-xs">Try adjusting your filters</p>
+              <p className="text-ink text-sm font-medium mb-1">No matching requests</p>
+              <p className="text-faint text-xs">Try adjusting your filters</p>
             </div>
           ) : (
             <EmptyFeed />
@@ -42,6 +43,7 @@ export function RequestList({
               key={req.id}
               request={req}
               selected={req.id === selectedId}
+              isNew={newIds.has(req.id)}
               onClick={() => onSelect(req)}
             />
           ))

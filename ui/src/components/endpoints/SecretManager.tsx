@@ -66,13 +66,13 @@ export function SecretManager({ endpointId }: { endpointId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">
           Signature verification
         </h3>
         {!showInput && (
           <button
             onClick={() => setShowInput(true)}
-            className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors"
+            className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors duration-200 ease-(--ease-considered)"
           >
             + Add secret
           </button>
@@ -85,15 +85,16 @@ export function SecretManager({ endpointId }: { endpointId: string }) {
           {secrets.map(s => (
             <div
               key={s.id}
-              className="flex items-center justify-between px-3 py-2 bg-zinc-900 rounded-lg"
+              className="flex items-center justify-between px-3 py-2 bg-surface rounded-lg"
             >
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-zinc-300 capitalize">{s.provider}</span>
-                <span className="text-xs text-zinc-600">secret configured</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <span className="text-xs font-medium text-ink capitalize">{s.provider}</span>
+                <span className="text-xs text-faint">secret configured</span>
               </div>
               <button
                 onClick={() => handleDelete(s.id)}
-                className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
+                className="text-xs text-faint hover:text-red-400 transition-colors duration-200 ease-(--ease-considered)"
               >
                 Remove
               </button>
@@ -104,20 +105,20 @@ export function SecretManager({ endpointId }: { endpointId: string }) {
 
       {/* Add secret form */}
       {showInput && (
-        <div className="space-y-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
+        <div className="space-y-3 p-3 bg-surface rounded-lg border border-border animate-fade-in">
 
           {/* Provider picker */}
           <div className="space-y-1.5">
-            <label className="text-xs text-zinc-500">Provider</label>
+            <label className="text-xs text-muted">Provider</label>
             <div className="grid grid-cols-2 gap-1.5">
               {PROVIDERS.map(p => (
                 <button
                   key={p.value}
                   onClick={() => setProvider(p.value)}
-                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors duration-200 ease-(--ease-considered) ${
                     provider === p.value
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      ? 'bg-indigo-500 text-white'
+                      : 'bg-surface-hover text-muted hover:text-ink'
                   }`}
                 >
                   {p.label}
@@ -128,16 +129,16 @@ export function SecretManager({ endpointId }: { endpointId: string }) {
 
           {/* Secret input */}
           <div className="space-y-1.5">
-            <label className="text-xs text-zinc-500">Secret</label>
+            <label className="text-xs text-muted">Secret</label>
             <input
               type="password"
               value={secret}
               onChange={e => setSecret(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSave()}
               placeholder={selectedProvider?.hint}
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 transition-colors"
+              className="w-full bg-base border border-border-strong rounded-lg px-3 py-2 text-sm font-mono text-ink placeholder-faint focus:outline-none focus:border-indigo-500 transition-colors duration-200 ease-(--ease-considered)"
             />
-            <p className="text-xs text-zinc-600">{selectedProvider?.hint}</p>
+            <p className="text-xs text-faint">{selectedProvider?.hint}</p>
           </div>
 
           {error && (
@@ -147,14 +148,14 @@ export function SecretManager({ endpointId }: { endpointId: string }) {
           <div className="flex gap-2">
             <button
               onClick={() => { setShowInput(false); setSecret(''); setError(null) }}
-              className="flex-1 px-3 py-1.5 rounded border border-zinc-700 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="flex-1 px-3 py-1.5 rounded border border-border-strong text-xs text-muted hover:text-ink transition-colors duration-200 ease-(--ease-considered)"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={saving || !secret.trim()}
-              className="flex-1 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+              className="flex-1 px-3 py-1.5 rounded bg-indigo-500 hover:bg-indigo-400 active:scale-[0.98] disabled:opacity-50 text-white text-xs font-medium transition-all duration-200 ease-(--ease-considered)"
             >
               {saving ? 'Saving…' : 'Save secret'}
             </button>
@@ -163,7 +164,7 @@ export function SecretManager({ endpointId }: { endpointId: string }) {
       )}
 
       {!loading && secrets.length === 0 && !showInput && (
-        <p className="text-xs text-zinc-600 px-1">
+        <p className="text-xs text-faint px-1">
           Add a secret to verify incoming webhook signatures automatically.
         </p>
       )}

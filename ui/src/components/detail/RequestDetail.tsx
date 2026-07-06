@@ -13,8 +13,8 @@ interface SectionProps {
 function Section({ title, children }: SectionProps) {
   return (
     <div>
-      <div className="px-6 py-2.5 bg-zinc-900/30 border-y border-zinc-800/60 flex items-center">
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
+      <div className="px-6 py-2.5 bg-surface/30 border-y border-border/60 flex items-center">
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-widest">
           {title}
         </span>
       </div>
