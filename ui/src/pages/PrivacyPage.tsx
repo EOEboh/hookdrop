@@ -77,12 +77,12 @@ export function PrivacyPage() {
               hookdrop uses the following third-party services to operate:
             </p>
             <ul className="list-disc list-inside space-y-1 text-zinc-400 ml-2">
-              <li>Resend — transactional email (magic link login)</li>
-              <li>Paystack — payment processing for Nigerian and African users</li>
-              <li>Lemon Squeezy — payment processing for international users</li>
-              <li>PostHog — product analytics (anonymised usage data)</li>
-              <li>Hetzner — server infrastructure</li>
-              <li>Cloudflare — CDN, DNS, and backup storage</li>
+              <li>Resend: transactional email (magic link login)</li>
+              <li>Paystack: payment processing for Nigerian and African users</li>
+              <li>Lemon Squeezy: payment processing for international users</li>
+              <li>PostHog: product analytics (anonymised usage data)</li>
+              <li>Hetzner: server infrastructure</li>
+              <li>Cloudflare: CDN, DNS, and backup storage</li>
             </ul>
             <p>
               Each of these providers has their own privacy policy governing
