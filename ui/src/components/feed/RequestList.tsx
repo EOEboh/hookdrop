@@ -19,7 +19,7 @@ export function RequestList({
   const isFiltered = Object.values(filters).some(Boolean)
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div data-tour="request-feed" className="flex flex-col flex-1 min-h-0">
       <FilterBar
         filters={filters}
         onChange={onFilterChange}

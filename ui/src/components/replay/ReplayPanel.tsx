@@ -35,7 +35,7 @@ export function ReplayPanel({ request }: { request: CapturedRequest }) {
   }
 
   return (
-    <div className="px-6 py-5 space-y-4">
+    <div data-tour="replay-panel" className="px-6 py-5 space-y-4">
 
       {/* Target URL */}
       <div className="space-y-1.5">
