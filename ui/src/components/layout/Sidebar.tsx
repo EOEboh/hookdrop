@@ -9,6 +9,7 @@ import { PlusIcon } from '../ui/icons'
 import { useBilling } from '../../context/BillingContext'
 import { usePostHog } from '@posthog/react'
 import { Logo } from '../ui/Logo'
+import { TourHelpButton } from '../onboarding/TourHelpButton'
 
 interface Props {
   session: Session
@@ -88,6 +89,7 @@ export function Sidebar({
           >
             Log out
           </button>
+          <TourHelpButton />
         </div>
       </div>
       

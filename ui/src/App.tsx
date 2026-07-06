@@ -14,6 +14,7 @@ import { DEFAULT_FILTERS, type CapturedRequest, type Endpoint, type RequestFilte
 import { usePostHog } from '@posthog/react'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { TermsPage } from './pages/TermsPage'
+import { TourProvider } from './components/onboarding/TourProvider'
 
 export default function App() {
     if (window.location.pathname === '/privacy') return <PrivacyPage />
@@ -134,6 +135,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   }
 
   return (
+    <TourProvider>
     <div className="flex flex-col min-h-screen bg-base text-ink">
 
       {/* Upgrade banner: sits above everything, dismissible */}
@@ -189,7 +191,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             onTabChange={(t) => setMobileTab(t === 'endpoints' ? 'endpoints' : 'requests')}
           />
         </div>
-        <div className={`${mobileTab === 'detail' ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0`}>
+        <div data-tour="detail-panel" className={`${mobileTab === 'detail' ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0`}>
           <MainPanel selected={selectedRequest} />
         </div>
       </div>
@@ -200,5 +202,6 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         hasSelection={!!selectedRequest}
       />
     </div>
+    </TourProvider>
   )
 }
