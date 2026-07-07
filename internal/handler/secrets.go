@@ -87,6 +87,8 @@ func (h *SecretsHandler) save(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported provider", http.StatusBadRequest)
 		return
 	}
+
+	body.Secret = strings.TrimSpace(body.Secret)
 	if body.Secret == "" {
 		http.Error(w, "secret is required", http.StatusBadRequest)
 		return

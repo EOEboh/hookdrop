@@ -192,14 +192,14 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           />
         </div>
         <div data-tour="detail-panel" className={`${mobileTab === 'detail' ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0`}>
-          <MainPanel selected={selectedRequest} />
+          <MainPanel selected={selectedRequest} activeEndpoint={activeEndpoint} />
         </div>
       </div>
 
       <MobileTabBar
         active={mobileTab}
         onChange={setMobileTab}
-        hasSelection={!!selectedRequest}
+        hasSelection={!!selectedRequest || !!activeEndpoint}
       />
     </div>
     </TourProvider>

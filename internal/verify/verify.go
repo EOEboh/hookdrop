@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -114,8 +115,14 @@ func verifyPaystack(req *models.CapturedRequest, secret string) Result {
 	}
 
 	expected := computeHMAC(sha512.New, string(req.Body), secret)
+	match := hmac.Equal([]byte(expected), []byte(sigHeader))
 
-	if !hmac.Equal([]byte(expected), []byte(sigHeader)) {
+	// TEMP DEBUG — remove once the Paystack verification-failure bug is resolved.
+	// Never logs the secret itself, only its length.
+	log.Printf("[paystack-verify-debug] secret_len=%d received_sig=%s computed_sig=%s match=%t",
+		len(secret), sigHeader, expected, match)
+
+	if !match {
 		return Result{Status: "failed", Provider: provider, Reason: "signature mismatch"}
 	}
 
