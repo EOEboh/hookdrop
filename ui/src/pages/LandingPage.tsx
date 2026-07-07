@@ -203,17 +203,14 @@ export function LandingPage({ errorHint }: LandingPageProps) {
           <p className="text-muted text-sm">A two-minute walkthrough of capturing, inspecting, and replaying a webhook.</p>
         </div>
 
-        <div className="relative aspect-video max-w-3xl mx-auto rounded-xl border border-border-strong bg-surface flex flex-col items-center justify-center gap-3 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-brand/5 via-transparent to-brand-2/5" />
-          <button
-            aria-label="Play demo video"
-            className="relative w-14 h-14 rounded-full bg-indigo-500 hover:bg-indigo-400 active:scale-95 flex items-center justify-center transition-all duration-200 ease-(--ease-considered)"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white translate-x-0.5">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </button>
-          <p className="relative text-sm text-faint">Demo coming soon</p>
+        <div className="relative aspect-video max-w-3xl mx-auto rounded-xl border border-border-strong bg-surface overflow-hidden">
+          <iframe
+            src="https://www.loom.com/embed/9f7e293df78049a79ed1f27f0572a7c8"
+            title="hookdrop demo"
+            allow="fullscreen"
+            allowFullScreen
+            className="absolute inset-0 w-full h-full"
+          />
         </div>
       </section>
 
