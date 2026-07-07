@@ -5,7 +5,7 @@ import { useRequestFeed } from './hooks/useRequestFeed'
 import { Sidebar } from './components/layout/Sidebar'
 import { MainPanel } from './components/layout/MainPanel'
 import { MobileTabBar, type MobileTab } from './components/layout/MobileTabBar'
-import { LoginPage } from './pages/LoginPage'
+import { LandingPage } from './pages/LandingPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { PricingPage } from './components/billing/PricingPage'
 import { Spinner } from './components/ui/Spinner'
@@ -39,7 +39,7 @@ export default function App() {
   }
 
   const urlError = new URLSearchParams(window.location.search).get('error')
-  if (!user) return <LoginPage errorHint={urlError} />
+  if (!user) return <LandingPage errorHint={urlError} />
 
   //  Authenticated routes 
   if (window.location.pathname === '/settings/billing') {
