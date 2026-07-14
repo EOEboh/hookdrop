@@ -20,7 +20,7 @@ const FEATURES: { icon: (p: { className?: string }) => ReactNode; title: string;
   {
     icon: ClockIcon,
     title: 'Instant capture',
-    description: 'The moment a webhook hits your URL it shows up in the feed — no refresh, no polling.',
+    description: 'The moment a webhook hits your URL, it shows up in the feed. No refresh, no polling.',
   },
   {
     icon: CheckCircleIcon,
@@ -35,18 +35,18 @@ const FEATURES: { icon: (p: { className?: string }) => ReactNode; title: string;
   {
     icon: RefreshCwIcon,
     title: 'Replay anywhere',
-    description: 'Replay a captured request to your local server as many times as you need — no re-triggering from the provider.',
+    description: 'Replay a captured request to your local server as many times as you need, with no re-triggering from the provider.',
   },
 ]
 
 const STEPS = [
   {
     title: 'Get your inbox URL',
-    description: 'Sign in with just your email — a unique webhook URL is ready instantly.',
+    description: 'Sign in with just your email, and a unique webhook URL is ready instantly.',
   },
   {
     title: 'Point your provider at it',
-    description: "Stripe, Paystack, GitHub, Shopify — anything that sends webhooks.",
+    description: "Stripe, Paystack, GitHub, Shopify: anything that sends webhooks.",
   },
   {
     title: 'Watch requests land live',
@@ -127,7 +127,7 @@ export function LandingPage({ errorHint }: LandingPageProps) {
 
             <p className="text-muted text-base lg:text-lg leading-relaxed max-w-md mx-auto lg:mx-0">
               A drop-in inbox for every webhook. Capture, verify, and replay
-              requests instantly — no setup, no password, just your email.
+              requests instantly. No setup, no password, just your email.
             </p>
 
             {/* Signup form */}
@@ -178,7 +178,7 @@ export function LandingPage({ errorHint }: LandingPageProps) {
             </div>
           </div>
 
-          {/* Mock live feed panel — built from the real product components */}
+          {/* Mock live feed panel, built from the real product components */}
           <div className="relative">
             <div className="rounded-xl border border-border bg-surface/60 shadow-[0_0_60px_-20px_rgba(45,212,191,0.35)] overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
