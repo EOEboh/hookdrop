@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
   <defs>
     <linearGradient id="hookdropFaviconGradient" x1="4" y1="0" x2="20" y2="24" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7e14ff"/>
-      <stop offset="1" stop-color="#4f46e5"/>
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0d9488"/>
     </linearGradient>
   </defs>
   <path d="M12 1.5 C15.7 5.8 17.2 8.5 17.2 10.6 C17.2 13.5 14.9 15.6 12 15.6 C9.1 15.6 6.8 13.5 6.8 10.6 C6.8 8.5 8.3 5.8 12 1.5 Z" stroke="url(#hookdropFaviconGradient)" stroke-width="2.6"/>
