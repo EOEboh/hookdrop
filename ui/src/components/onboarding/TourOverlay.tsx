@@ -60,7 +60,7 @@ export function TourOverlay({ targetRect }: Props) {
             width: targetRect.width + SPOTLIGHT_PADDING * 2,
             height: targetRect.height + SPOTLIGHT_PADDING * 2,
             transition,
-            boxShadow: `0 0 0 9999px ${OVERLAY_COLOR}, 0 0 24px 6px rgba(99, 102, 241, 0.35), 0 0 0 2px #818cf8`,
+            boxShadow: `0 0 0 9999px ${OVERLAY_COLOR}, 0 0 24px 6px rgba(45, 212, 191, 0.35), 0 0 0 2px #2dd4bf`,
           }}
         />
       )}

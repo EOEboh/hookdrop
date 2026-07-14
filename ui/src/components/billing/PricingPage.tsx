@@ -175,7 +175,7 @@ export function PricingPage() {
     return (
       <div className="max-w-lg mx-auto px-6 py-16 space-y-8">
         {/* Gradient-border shell — 1px indigo blend + soft glow, not a heavy card */}
-        <div className="rounded-xl bg-gradient-to-br from-indigo-500/40 via-indigo-500/10 to-transparent p-px shadow-[0_0_44px_-16px_rgba(99,102,241,0.45)]">
+        <div className="rounded-xl bg-gradient-to-br from-indigo-500/40 via-indigo-500/10 to-transparent p-px shadow-[0_0_44px_-16px_rgba(20,184,166,0.45)]">
           <div className="rounded-[11px] bg-surface p-8 space-y-6">
 
             <div className="flex items-start justify-between">
@@ -332,7 +332,7 @@ export function PricingPage() {
         </div>
 
         {/* Pro card — gradient border + soft glow gives it real visual weight */}
-        <div className="relative rounded-xl bg-gradient-to-br from-indigo-500/50 via-indigo-500/15 to-transparent p-px shadow-[0_0_50px_-18px_rgba(99,102,241,0.55)]">
+        <div className="relative rounded-xl bg-gradient-to-br from-indigo-500/50 via-indigo-500/15 to-transparent p-px shadow-[0_0_50px_-18px_rgba(20,184,166,0.55)]">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
             <span className="bg-indigo-500 text-white text-[11px] font-semibold px-3 py-1 rounded-full">
               Most popular

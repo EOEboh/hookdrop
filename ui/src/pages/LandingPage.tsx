@@ -180,7 +180,7 @@ export function LandingPage({ errorHint }: LandingPageProps) {
 
           {/* Mock live feed panel — built from the real product components */}
           <div className="relative">
-            <div className="rounded-xl border border-border bg-surface/60 shadow-[0_0_60px_-20px_rgba(126,20,255,0.35)] overflow-hidden">
+            <div className="rounded-xl border border-border bg-surface/60 shadow-[0_0_60px_-20px_rgba(45,212,191,0.35)] overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-xs font-mono text-muted truncate">hookdrop.app/i/a1b2c3d4</span>
                 <StatusDot status="live" />
