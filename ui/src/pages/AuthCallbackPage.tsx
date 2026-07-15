@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { Spinner } from '../components/ui/Spinner'
 import { usePostHog } from '@posthog/react'
+import { hasPendingCliAuth } from './CliAuthPage'
 
 export function AuthCallbackPage() {
   const { login } = useAuth()
@@ -19,10 +20,15 @@ export function AuthCallbackPage() {
 
     if (token) {
       // Store the token first, then hard-navigate
-    
+
       login(token)
-      posthog?.capture('magic_link_verified') 
-      window.location.replace('/')
+      posthog?.capture('magic_link_verified')
+      // Resume a pending CLI authorization if one started this login
+      if (hasPendingCliAuth()) {
+        window.location.replace('/cli-auth')
+      } else {
+        window.location.replace('/')
+      }
     } else {
       // No token in the URL — something went wrong
       // Redirect to login with an error hint

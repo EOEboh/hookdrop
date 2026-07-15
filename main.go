@@ -132,7 +132,7 @@ func main() {
 		Version:   getEnv("APP_VERSION", "dev"),
 	}
 	secretsHandler := &handler.SecretsHandler{Store: st}
-	requireAuth := middleware.Auth(jwtSecret)
+	requireAuth := middleware.Auth(jwtSecret, st)
 	inboxLimiter := middleware.InboxRateLimit(rateLimiter)
 
 	// ── Routes
@@ -161,6 +161,12 @@ func main() {
 		requireAuth(http.HandlerFunc(billingHandler.GetPortal)))
 	mux.Handle("/billing/cancel",
 		requireAuth(http.HandlerFunc(billingHandler.CancelSubscription)))
+
+	// Account + API tokens — authenticated (token management is JWT-only,
+	// enforced inside TokensHandler)
+	mux.Handle("/me", requireAuth(&handler.MeHandler{Store: st}))
+	mux.Handle("/tokens", requireAuth(&handler.TokensHandler{Store: st}))
+	mux.Handle("/tokens/", requireAuth(&handler.TokensHandler{Store: st}))
 
 	// Core — authenticated
 	mux.Handle("/sessions", requireAuth(&handler.SessionHandler{Manager: mgr}))

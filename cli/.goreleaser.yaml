@@ -1,0 +1,57 @@
+# goreleaser config for the hookdrop CLI.
+# Released on v* tags via .github/workflows/release.yml (workdir: cli).
+# The backend is deployed separately by scripts/deploy.sh and never tagged.
+version: 2
+
+project_name: hookdrop
+
+builds:
+  - main: .
+    binary: hookdrop
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "hookdrop_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+# goreleaser deprecates `brews` in favor of macOS-only `homebrew_casks`;
+# we keep the formula so `brew install` also works on Homebrew-for-Linux.
+brews:
+  - name: hookdrop
+    repository:
+      owner: EOEboh
+      name: homebrew-hookdrop
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://hookdrop.app
+    description: Stream and forward hookdrop webhooks from your terminal
+    test: |
+      system "#{bin}/hookdrop --version"

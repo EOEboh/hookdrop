@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/EOEboh/hookdrop/internal/middleware"
 	"github.com/EOEboh/hookdrop/internal/session"
 )
 
@@ -17,7 +18,7 @@ func (h *SessionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := h.Manager.CreateSession()
+	sess, err := h.Manager.CreateSession(middleware.GetUser(r).ID)
 	if err != nil {
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return

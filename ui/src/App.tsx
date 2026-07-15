@@ -15,6 +15,8 @@ import { usePostHog } from '@posthog/react'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { TermsPage } from './pages/TermsPage'
 import { TourProvider } from './components/onboarding/TourProvider'
+import { SettingsTokensPage } from './pages/SettingsTokensPage'
+import { CliAuthPage, stashCliAuthParams } from './pages/CliAuthPage'
 
 export default function App() {
     if (window.location.pathname === '/privacy') return <PrivacyPage />
@@ -39,11 +41,23 @@ export default function App() {
   }
 
   const urlError = new URLSearchParams(window.location.search).get('error')
-  if (!user) return <LandingPage errorHint={urlError} />
+  if (!user) {
+    // CLI browser login: remember port+state across the magic-link round-trip
+    if (window.location.pathname === '/cli-auth') stashCliAuthParams()
+    return <LandingPage errorHint={urlError} />
+  }
 
-  //  Authenticated routes 
+  //  Authenticated routes
   if (window.location.pathname === '/settings/billing') {
     return <BillingPageShell onLogout={logout} />
+  }
+
+  if (window.location.pathname === '/settings/tokens') {
+    return <TokensPageShell onLogout={logout} />
+  }
+
+  if (window.location.pathname === '/cli-auth') {
+    return <CliAuthPage />
   }
 
   return <AuthenticatedApp onLogout={logout} />
@@ -75,6 +89,32 @@ function BillingPageShell({ onLogout }: { onLogout: () => void }) {
 
       {/* Page content */}
       <PricingPage />
+    </div>
+  )
+}
+
+// Same chrome as BillingPageShell, wrapping the API tokens page
+function TokensPageShell({ onLogout }: { onLogout: () => void }) {
+  return (
+    <div className="min-h-screen bg-base text-ink">
+      <div className="border-b border-border px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => window.history.back()}
+            className="text-muted hover:text-ink text-sm transition-colors duration-200 ease-(--ease-considered) flex items-center gap-1.5"
+          >
+            ← Back
+          </button>
+          <Logo size="sm" />
+        </div>
+        <button
+          onClick={onLogout}
+          className="text-xs text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
+        >
+          Log out
+        </button>
+      </div>
+      <SettingsTokensPage />
     </div>
   )
 }

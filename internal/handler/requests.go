@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/EOEboh/hookdrop/internal/middleware"
 	"github.com/EOEboh/hookdrop/internal/models"
 	"github.com/EOEboh/hookdrop/internal/store"
 )
@@ -14,15 +15,20 @@ type RequestsHandler struct {
 }
 
 func (h *RequestsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	sessionID := strings.TrimPrefix(r.URL.Path, "/requests/")
-	sessionID = strings.Trim(sessionID, "/")
+	identifier := strings.TrimPrefix(r.URL.Path, "/requests/")
+	identifier = strings.Trim(identifier, "/")
 
-	if sessionID == "" {
+	if identifier == "" {
 		http.Error(w, "missing session id", http.StatusBadRequest)
 		return
 	}
 
-	if !h.Store.IdentifierExists(sessionID) {
+	// Resolve slug/endpoint/session to the canonical ID requests are stored
+	// under, and enforce ownership — foreign resources return the same 404 as
+	// missing ones.
+	user := middleware.GetUser(r)
+	sessionID, ok := h.Store.ResolveIdentifierForUser(identifier, user.ID)
+	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}

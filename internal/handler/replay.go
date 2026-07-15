@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/EOEboh/hookdrop/internal/middleware"
 	"github.com/EOEboh/hookdrop/internal/models"
 	"github.com/EOEboh/hookdrop/internal/replay"
 	"github.com/EOEboh/hookdrop/internal/store"
@@ -39,6 +40,14 @@ func (h *ReplayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if original == nil {
+		http.Error(w, "request not found", http.StatusNotFound)
+		return
+	}
+
+	// Ownership check on the captured request's session/endpoint — foreign
+	// requests return the same 404 as missing ones.
+	user := middleware.GetUser(r)
+	if _, ok := h.Store.ResolveIdentifierForUser(original.SessionID, user.ID); !ok {
 		http.Error(w, "request not found", http.StatusNotFound)
 		return
 	}

@@ -185,6 +185,22 @@ func (s *Store) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_subscriptions_provider_sub
     ON subscriptions(provider_sub_id);
+
+	CREATE TABLE IF NOT EXISTS api_tokens (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    token_hash   TEXT UNIQUE NOT NULL,   -- hex(sha256(full token)); plaintext never stored
+    token_prefix TEXT NOT NULL,          -- first chars only, for display
+    created_at   DATETIME NOT NULL,
+    last_used_at DATETIME,
+    expires_at   DATETIME,               -- NULL = never expires
+    revoked_at   DATETIME,               -- NULL = active
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_api_tokens_user
+    ON api_tokens(user_id);
     `
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -215,9 +231,14 @@ func (s *Store) migrate() error {
 }
 
 func (s *Store) CreateSession(session *models.Session) error {
+	// user_id stays NULL for legacy callers; owned sessions record their creator
+	var userID interface{}
+	if session.UserID != "" {
+		userID = session.UserID
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)`,
-		session.ID, session.CreatedAt, session.ExpiresAt,
+		`INSERT INTO sessions (id, created_at, expires_at, user_id) VALUES (?, ?, ?, ?)`,
+		session.ID, session.CreatedAt, session.ExpiresAt, userID,
 	)
 	return err
 }
@@ -533,6 +554,36 @@ func (s *Store) EndpointIDExists(id string) bool {
 // IdentifierExists checks both sessions and named endpoints
 func (s *Store) IdentifierExists(id string) bool {
 	return s.SessionExists(id) || s.EndpointIDExists(id)
+}
+
+// ResolveIdentifierForUser resolves a slug, endpoint ID, or session ID to the
+// canonical identifier requests are stored/broadcast under, and checks the
+// user may access it. ok=false covers both "not found" and "not yours" —
+// callers must respond 404 so foreign resources are indistinguishable from
+// missing ones (same convention as the secrets handler).
+func (s *Store) ResolveIdentifierForUser(identifier, userID string) (string, bool) {
+	if ep, err := s.GetEndpointBySlug(identifier); err == nil && ep != nil {
+		return ep.ID, ep.UserID == userID
+	}
+
+	if s.EndpointIDExists(identifier) {
+		return identifier, s.EndpointBelongsToUser(identifier, userID)
+	}
+
+	var expiresAt time.Time
+	var sessionUserID sql.NullString
+	err := s.db.QueryRow(
+		`SELECT expires_at, user_id FROM sessions WHERE id = ?`, identifier,
+	).Scan(&expiresAt, &sessionUserID)
+	if err != nil || !time.Now().Before(expiresAt) {
+		return "", false
+	}
+	// Legacy sessions (NULL user_id) are open to any authenticated user;
+	// owned sessions only to their creator.
+	if sessionUserID.Valid && sessionUserID.String != "" && sessionUserID.String != userID {
+		return "", false
+	}
+	return identifier, true
 }
 
 func (s *Store) SaveWebhookSecret(secret *models.WebhookSecret) error {

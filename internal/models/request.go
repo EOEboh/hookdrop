@@ -26,6 +26,7 @@ type Endpoint struct {
 
 type Session struct {
 	ID        string    `json:"id"`
+	UserID    string    `json:"user_id,omitempty"` // empty for legacy anonymous sessions
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -88,6 +89,20 @@ type Subscription struct {
 	Interval           string     `json:"interval"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+// APIToken is a long-lived, revocable credential for the CLI and other
+// non-browser clients. Only the SHA-256 hash of the token is persisted.
+type APIToken struct {
+	ID          string     `json:"id"`
+	UserID      string     `json:"user_id"`
+	Name        string     `json:"name"`
+	TokenHash   string     `json:"-"`
+	TokenPrefix string     `json:"token_prefix"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastUsedAt  *time.Time `json:"last_used_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	RevokedAt   *time.Time `json:"revoked_at"`
 }
 
 type PlanLimit struct {
