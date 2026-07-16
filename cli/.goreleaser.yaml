@@ -1,5 +1,5 @@
 # goreleaser config for the hookdrop CLI.
-# Released on v* tags via .github/workflows/release.yml (workdir: cli).
+# Released locally via scripts/release.sh (see RELEASING.md) — no CI.
 # The backend is deployed separately by scripts/deploy.sh and never tagged.
 version: 2
 
