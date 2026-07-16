@@ -53,7 +53,20 @@ CGO_ENABLED=0 go build -o hookdrop .
 HOOKDROP_API_URL=http://localhost:8080 ./hookdrop login
 ```
 
-Releases: push a `v*` tag — `.github/workflows/release.yml` runs goreleaser,
-publishes GitHub Releases for darwin/linux (amd64+arm64) and windows/amd64,
-and updates the Homebrew tap `EOEboh/homebrew-hookdrop` (requires the
-`HOMEBREW_TAP_GITHUB_TOKEN` repo secret).
+Releases are run locally with goreleaser (no GitHub Actions required).
+Tag the release, then run goreleaser from `cli/` with two free personal
+access tokens in the environment:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+
+cd cli
+export GITHUB_TOKEN=<PAT with Contents:write on EOEboh/hookdrop>
+export HOMEBREW_TAP_GITHUB_TOKEN=<fine-grained PAT on EOEboh/homebrew-hookdrop>
+go run github.com/goreleaser/goreleaser/v2@latest release --clean
+```
+
+This publishes the GitHub Release for darwin/linux (amd64+arm64) and
+windows/amd64, uploads `checksums.txt`, and updates the Homebrew tap
+`EOEboh/homebrew-hookdrop`. `--snapshot --skip=publish` does a dry run.
