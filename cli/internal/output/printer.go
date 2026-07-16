@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/EOEboh/hookdrop/cli/internal/api"
@@ -98,6 +99,18 @@ func (p *Printer) ForwardResult(res forward.Result) string {
 // Status renders dim informational lines (connecting, reconnecting…).
 func (p *Printer) Status(s string) string {
 	return Colorize(p.Colors, Dim, s)
+}
+
+// Ready renders the multi-line banner shown once the stream connects.
+func (p *Printer) Ready(inboxURL, forwardURL string) string {
+	check := Colorize(p.Colors, Green, "✓")
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s Ready — listening on %s\n", check, Colorize(p.Colors, Bold, inboxURL))
+	if forwardURL != "" {
+		fmt.Fprintf(&b, "  → forwarding to %s\n", Colorize(p.Colors, Bold, forwardURL))
+	}
+	b.WriteString(Colorize(p.Colors, Dim, "  waiting for webhooks…  (Ctrl-C to stop)"))
+	return b.String()
 }
 
 func ShortID(id string) string {

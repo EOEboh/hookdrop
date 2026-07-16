@@ -4,6 +4,14 @@ Stream webhooks captured by [hookdrop](https://hookdrop.app) into your
 terminal, and forward each one to a local server the hosted backend can't
 reach.
 
+## Quickstart
+
+```sh
+brew install EOEboh/hookdrop/hookdrop
+hookdrop login                       # opens your browser to authorize
+hookdrop listen my-slug -f 3000      # stream webhooks + forward to localhost:3000
+```
+
 ## Install
 
 ```sh
@@ -22,14 +30,25 @@ the active session keeps the old binary until it exits.)
 ## Use
 
 ```sh
-hookdrop login                                   # browser-based; --token or --no-browser for headless
-hookdrop whoami                                  # account, plan, limits
-hookdrop endpoints                               # list your named endpoints
-hookdrop listen --endpoint my-slug               # stream webhooks live
-hookdrop listen --endpoint my-slug \
-  --forward http://localhost:3000/webhook        # …and re-send each one locally
+hookdrop login                       # browser-based; --token or --no-browser for headless
+hookdrop whoami                      # account, plan, limits
+hookdrop endpoints                   # list your named endpoints
+
+hookdrop listen                      # pick an endpoint, stream webhooks
+hookdrop listen my-slug              # stream a specific endpoint
+hookdrop listen my-slug -f 3000      # …and forward each one to localhost:3000
+hookdrop listen my-slug -f 3000 --path /webhook   # forward to a specific path
+hookdrop listen my-slug -f https://localhost:8443/hook  # full URL also works
+
 hookdrop logout
 ```
+
+`listen` takes the endpoint as an optional argument: with one named endpoint
+it's chosen automatically, with several you're prompted to pick. `-f/--forward`
+accepts a bare port (`3000`), `host:port`, or a full URL; `--path` appends a
+path. Without `-f`, it just streams webhooks to your terminal.
+
+Shell completions are available via `hookdrop completion bash|zsh|fish|powershell`.
 
 Forwarded requests carry `X-Hookdrop-Forwarded: true` and
 `X-Hookdrop-Original-Id` headers; hop-by-hop headers (`Host`,
