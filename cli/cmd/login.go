@@ -95,6 +95,9 @@ func browserLogin(ctx context.Context, frontendURL string) (string, error) {
 	}
 	state := hex.EncodeToString(stateBytes)
 
+	// Port 0 => the OS assigns a free ephemeral port, so there is never a
+	// fixed-port collision. A bind failure (no loopback) propagates up and
+	// the caller falls back to the paste prompt.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", fmt.Errorf("start local listener: %w", err)
@@ -102,6 +105,23 @@ func browserLogin(ctx context.Context, frontendURL string) (string, error) {
 	defer listener.Close()
 	port := listener.Addr().(*net.TCPAddr).Port
 
+	authURL := fmt.Sprintf("%s/cli-auth?port=%d&state=%s",
+		strings.TrimRight(frontendURL, "/"), port, url.QueryEscape(state))
+
+	fmt.Printf("Opening your browser to authorize the CLI…\n  %s\n", authURL)
+	if err := openBrowser(authURL); err != nil {
+		fmt.Fprintln(os.Stderr, "Couldn't open a browser automatically — open the URL above manually.")
+	}
+	fmt.Println("Waiting for authorization…")
+
+	return waitForCallback(ctx, listener, state, browserLoginTimeout)
+}
+
+// waitForCallback serves a single /callback on listener and returns the
+// token once the browser delivers it with the matching state. It returns
+// an error on timeout or context cancellation. Split out from browserLogin
+// so the callback mechanics are testable without opening a browser.
+func waitForCallback(ctx context.Context, listener net.Listener, state string, timeout time.Duration) (string, error) {
 	tokenCh := make(chan string, 1)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/callback" || r.URL.Query().Get("state") != state {
@@ -117,7 +137,7 @@ func browserLogin(ctx context.Context, frontendURL string) (string, error) {
 		fmt.Fprint(w, `<!doctype html><html><body style="font-family: system-ui; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0">
 <div style="text-align: center"><h2>✓ You're logged in</h2><p>Return to your terminal — you can close this tab.</p></div>
 </body></html>`)
-		// Flush before signaling: the main goroutine closes the server as
+		// Flush before signaling: the wait returns and closes the server as
 		// soon as it has the token, which would race the buffered response.
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
@@ -130,19 +150,10 @@ func browserLogin(ctx context.Context, frontendURL string) (string, error) {
 	go server.Serve(listener)
 	defer server.Close()
 
-	authURL := fmt.Sprintf("%s/cli-auth?port=%d&state=%s",
-		strings.TrimRight(frontendURL, "/"), port, url.QueryEscape(state))
-
-	fmt.Printf("Opening your browser to authorize the CLI…\n  %s\n", authURL)
-	if err := openBrowser(authURL); err != nil {
-		fmt.Fprintln(os.Stderr, "Couldn't open a browser automatically — open the URL above manually.")
-	}
-	fmt.Println("Waiting for authorization…")
-
 	select {
 	case token := <-tokenCh:
 		return token, nil
-	case <-time.After(browserLoginTimeout):
+	case <-time.After(timeout):
 		return "", errors.New("timed out waiting for the browser")
 	case <-ctx.Done():
 		return "", ctx.Err()
