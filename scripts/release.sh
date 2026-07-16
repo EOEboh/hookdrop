@@ -66,28 +66,31 @@ check_repo "$GITHUB_TOKEN" "EOEboh/hookdrop"
 check_repo "$HOMEBREW_TAP_GITHUB_TOKEN" "EOEboh/homebrew-hookdrop"
 
 # ── goreleaser runner (installed binary, else go run) ────────────────────
-if command -v goreleaser >/dev/null 2>&1; then
-  GORELEASER=(goreleaser)
-else
-  GORELEASER=(go run github.com/goreleaser/goreleaser/v2@latest)
-fi
+# A function (not an array) so it works on macOS's bash 3.2 under `set -u`.
+run_goreleaser() {
+  if command -v goreleaser >/dev/null 2>&1; then
+    ( cd cli && goreleaser "$@" )
+  else
+    ( cd cli && go run github.com/goreleaser/goreleaser/v2@latest "$@" )
+  fi
+}
 
 # ── Dry run: build only, no tag, no publish ──────────────────────────────
 if [ "$DRY_RUN" = "1" ]; then
-  echo "Dry run for $VERSION (no tag, no publish)…"
-  ( cd cli && "${GORELEASER[@]}" release --snapshot --clean --skip=publish )
-  echo "Dry run complete — artifacts in cli/dist/. Nothing was tagged or published."
+  echo "Dry run for ${VERSION} (no tag, no publish)..."
+  run_goreleaser release --snapshot --clean --skip=publish
+  echo "Dry run complete. Artifacts in cli/dist/. Nothing was tagged or published."
   exit 0
 fi
 
 # ── Tag, push, release ───────────────────────────────────────────────────
-echo "Tagging $VERSION…"
+echo "Tagging ${VERSION}..."
 git tag "$VERSION"
 git push origin "$VERSION"
 
-echo "Releasing $VERSION with goreleaser…"
-if ( cd cli && "${GORELEASER[@]}" release --clean ); then
-  echo "✓ Released $VERSION"
+echo "Releasing ${VERSION} with goreleaser..."
+if run_goreleaser release --clean; then
+  echo "Released ${VERSION}"
   echo "  Release:  https://github.com/EOEboh/hookdrop/releases/tag/$VERSION"
   echo "  Verify:   brew update && brew upgrade hookdrop   (or: brew install EOEboh/hookdrop/hookdrop)"
 else
