@@ -18,6 +18,10 @@ import (
 // replacements or revoke the user's other tokens.
 type TokensHandler struct {
 	Store *store.Store
+	// MintLimiter caps token creation per user/hour so a stolen web JWT
+	// can't be burst-replayed into many long-lived tokens. It's the
+	// generic string-keyed sliding-hour limiter, keyed here by user ID.
+	MintLimiter *middleware.EmailRateLimiter
 }
 
 func (h *TokensHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +52,12 @@ func (h *TokensHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request, userID string) {
+	if h.MintLimiter != nil && !h.MintLimiter.Allow(userID) {
+		w.Header().Set("Retry-After", "3600")
+		http.Error(w, "too many tokens created — try again later", http.StatusTooManyRequests)
+		return
+	}
+
 	var body struct {
 		Name          string `json:"name"`
 		ExpiresInDays int    `json:"expires_in_days"`
