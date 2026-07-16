@@ -7,22 +7,39 @@ reach.
 ## Quickstart
 
 ```sh
-brew install EOEboh/hookdrop/hookdrop
+curl -fsSL https://raw.githubusercontent.com/EOEboh/hookdrop/main/scripts/install.sh | sh
 hookdrop login                       # opens your browser to authorize
 hookdrop listen my-slug -f 3000      # stream webhooks + forward to localhost:3000
 ```
 
 ## Install
 
-```sh
-# Homebrew (macOS / Linux)
-brew install EOEboh/hookdrop/hookdrop
+### curl (recommended — one line, no extra steps)
 
-# curl
+```sh
 curl -fsSL https://raw.githubusercontent.com/EOEboh/hookdrop/main/scripts/install.sh | sh
 ```
 
-Windows binaries are on [GitHub Releases](https://github.com/EOEboh/hookdrop/releases).
+Downloads the latest release for your OS/arch, verifies it against
+`checksums.txt`, and installs to `/usr/local/bin` (or `~/.local/bin`).
+
+### Homebrew (macOS / Linux)
+
+Homebrew requires you to **trust a third-party tap** before it will install
+from it, so this is a three-step, one-time setup:
+
+```sh
+brew tap EOEboh/hookdrop
+brew trust eoeboh/hookdrop      # one-time: approve this tap
+brew install hookdrop
+```
+
+Upgrade later with `brew upgrade hookdrop`. (Without `brew trust`, the install
+fails with "Refusing to load formula … from untrusted tap".)
+
+### Windows
+
+Download the archive from [GitHub Releases](https://github.com/EOEboh/hookdrop/releases).
 (Note: replacing `hookdrop.exe` while a `listen` session is running will fail
 on Windows — stop it first. On macOS/Linux, upgrading while running is fine;
 the active session keeps the old binary until it exits.)
