@@ -11,15 +11,36 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:           "hookdrop",
-	Short:         "Stream and forward your hookdrop webhooks from the terminal",
-	Long:          "hookdrop streams webhooks captured by hookdrop.app into your terminal\nand can forward each one to a local server that the hosted backend can't reach.",
+	Use:   "hookdrop",
+	Short: "Stream and forward your hookdrop webhooks from the terminal",
+	Long: `hookdrop streams webhooks captured at hookdrop.app into your terminal and
+forwards each one to a local server the hosted backend can't reach directly —
+a local webhook forwarder for developing against real webhook traffic.`,
+	Example: `  hookdrop login                     # authenticate (opens your browser)
+  hookdrop listen my-slug -f 3000    # stream + forward to localhost:3000
+  hookdrop endpoints                 # list your endpoints`,
 	SilenceUsage:  true,
 	SilenceErrors: false,
 }
 
+var versionString = "dev"
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the hookdrop CLI version",
+	Args:  cobra.NoArgs,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("hookdrop " + versionString)
+	},
+}
+
 func SetVersion(version, commit, date string) {
-	rootCmd.Version = fmt.Sprintf("%s (commit %s, built %s)", version, commit, date)
+	versionString = fmt.Sprintf("%s (commit %s, built %s)", version, commit, date)
+	rootCmd.Version = versionString
+}
+
+func init() {
+	rootCmd.AddCommand(versionCmd)
 }
 
 func Execute() error {
