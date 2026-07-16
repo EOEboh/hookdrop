@@ -1,5 +1,5 @@
 import type {
-  CapturedRequest, Endpoint, PlanLimits, ReplayRequest,
+  APIToken, CapturedRequest, CreatedAPIToken, Endpoint, PlanLimits, ReplayRequest,
   ReplayResponse, RequestFilters, Session,
   Subscription,
   WebhookSecret
@@ -192,5 +192,33 @@ cancelSubscription(): Promise<{
     method: 'POST',
     headers: { ...authHeaders() },
   }).then(handle<{ cancelled: boolean; cancel_at_period_end: boolean; access_until: string | null }>)
+},
+
+listTokens(): Promise<APIToken[]> {
+  return fetch(`${BASE_URL}/tokens`, {
+    headers: { ...authHeaders() },
+  }).then(handle<APIToken[]>)
+},
+
+createToken(data: { name: string; expires_in_days?: number }): Promise<CreatedAPIToken> {
+  return fetch(`${BASE_URL}/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(data),
+  }).then(handle<CreatedAPIToken>)
+},
+
+revokeToken(id: string): Promise<void> {
+  return fetch(`${BASE_URL}/tokens/${id}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  }).then(res => { if (!res.ok) throw new Error(`${res.status}`) })
+},
+
+revokeAllTokens(): Promise<void> {
+  return fetch(`${BASE_URL}/tokens`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  }).then(res => { if (!res.ok) throw new Error(`${res.status}`) })
 },
 }

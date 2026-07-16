@@ -108,6 +108,7 @@ func main() {
 
 	emailLimiter := middleware.NewEmailRateLimiter(5)        // 5 per email per hour
 	authIPLimiter := middleware.NewRateLimiter(10, 10.0/600) // 10 capacity, refills to 10 every 10 min
+	tokenMintLimiter := middleware.NewEmailRateLimiter(10)   // 10 API tokens per user per hour
 
 	// ── Handlers
 	authHandler := &handler.AuthHandler{
@@ -132,7 +133,7 @@ func main() {
 		Version:   getEnv("APP_VERSION", "dev"),
 	}
 	secretsHandler := &handler.SecretsHandler{Store: st}
-	requireAuth := middleware.Auth(jwtSecret)
+	requireAuth := middleware.Auth(jwtSecret, st)
 	inboxLimiter := middleware.InboxRateLimit(rateLimiter)
 
 	// ── Routes
@@ -161,6 +162,12 @@ func main() {
 		requireAuth(http.HandlerFunc(billingHandler.GetPortal)))
 	mux.Handle("/billing/cancel",
 		requireAuth(http.HandlerFunc(billingHandler.CancelSubscription)))
+
+	// Account + API tokens — authenticated (token management is JWT-only,
+	// enforced inside TokensHandler)
+	mux.Handle("/me", requireAuth(&handler.MeHandler{Store: st}))
+	mux.Handle("/tokens", requireAuth(&handler.TokensHandler{Store: st, MintLimiter: tokenMintLimiter}))
+	mux.Handle("/tokens/", requireAuth(&handler.TokensHandler{Store: st, MintLimiter: tokenMintLimiter}))
 
 	// Core — authenticated
 	mux.Handle("/sessions", requireAuth(&handler.SessionHandler{Manager: mgr}))

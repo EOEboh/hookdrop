@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EOEboh/hookdrop/internal/middleware"
 	"github.com/EOEboh/hookdrop/internal/sse"
 	"github.com/EOEboh/hookdrop/internal/store"
 )
@@ -18,10 +19,15 @@ type SSEHandler struct {
 
 func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	sessionID := strings.TrimPrefix(r.URL.Path, "/events/")
-	sessionID = strings.Trim(sessionID, "/")
+	identifier := strings.TrimPrefix(r.URL.Path, "/events/")
+	identifier = strings.Trim(identifier, "/")
 
-	if sessionID == "" || !h.Store.IdentifierExists(sessionID) {
+	// Resolve slug/endpoint/session to the canonical ID the broadcaster keys
+	// by, and enforce ownership — foreign resources look identical to missing
+	// ones (404, no existence leak).
+	user := middleware.GetUser(r)
+	sessionID, ok := h.Store.ResolveIdentifierForUser(identifier, user.ID)
+	if identifier == "" || !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}

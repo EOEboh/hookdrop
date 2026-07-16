@@ -76,6 +76,12 @@ export function Sidebar({
             {isPro ? '⚡ Pro' : 'Upgrade'}
           </a>
           <a
+           href="/settings/tokens"
+            className="text-xs text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
+          >
+            API tokens
+          </a>
+          <a
            href="https://status.hookdrop.app"
       target="_blank"
       rel="noopener noreferrer"
