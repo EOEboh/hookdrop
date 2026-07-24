@@ -394,12 +394,12 @@ export function PricingPage() {
         Payments processed securely by{' '}
         {currency === 'ngn' ? 'Paystack' : 'Lemon Squeezy'}.
       </p>
-      <div className="flex items-center justify-center gap-4 text-xs text-zinc-700">
-        <a href="/privacy" className="hover:text-zinc-500 transition-colors">
+      <div className="flex items-center justify-center gap-4 text-xs text-faint">
+        <a href="/privacy" className="hover:text-muted transition-colors duration-200 ease-(--ease-considered)">
           Privacy Policy
         </a>
         <span>·</span>
-        <a href="/terms" className="hover:text-zinc-500 transition-colors">
+        <a href="/terms" className="hover:text-muted transition-colors duration-200 ease-(--ease-considered)">
           Terms of Service
         </a>
       </div>

@@ -99,7 +99,7 @@ export function LandingPage({ errorHint }: LandingPageProps) {
             </a>
             <button
               onClick={scrollToForm}
-              className="text-sm bg-surface hover:bg-surface-hover border border-border-strong text-ink px-4 py-1.5 rounded-lg transition-colors duration-200 ease-(--ease-considered)"
+              className="text-sm bg-surface hover:bg-surface-hover border border-border-strong text-ink px-4 py-2 rounded-lg transition-colors duration-200 ease-(--ease-considered)"
             >
               Sign in
             </button>
