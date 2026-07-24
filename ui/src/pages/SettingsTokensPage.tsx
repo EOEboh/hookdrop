@@ -176,12 +176,12 @@ export function SettingsTokensPage() {
       ) : (
         <div className="border border-border rounded-lg divide-y divide-border">
           {activeTokens.map(t => (
-            <div key={t.id} className="flex items-center justify-between gap-4 px-4 py-3">
+            <div key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 px-4 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate">{t.name}</p>
                 <p className="text-xs text-faint font-mono mt-0.5">{t.token_prefix}…</p>
               </div>
-              <div className="flex items-center gap-6 text-xs text-muted shrink-0">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 sm:gap-6 text-xs text-muted">
                 <span title="Created">{formatDate(t.created_at)}</span>
                 <span title="Last used">
                   {t.last_used_at ? `used ${formatDate(t.last_used_at)}` : 'never used'}
@@ -206,12 +206,12 @@ export function SettingsTokensPage() {
           <summary className="cursor-pointer text-xs">Revoked tokens ({revokedTokens.length})</summary>
           <div className="mt-2 border border-border rounded-lg divide-y divide-border opacity-60">
             {revokedTokens.map(t => (
-              <div key={t.id} className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <div key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4 px-4 py-2.5">
                 <div className="min-w-0">
                   <p className="text-sm truncate line-through">{t.name}</p>
                   <p className="text-xs text-faint font-mono mt-0.5">{t.token_prefix}…</p>
                 </div>
-                <span className="text-xs shrink-0">revoked {formatDate(t.revoked_at)}</span>
+                <span className="text-xs">revoked {formatDate(t.revoked_at)}</span>
               </div>
             ))}
           </div>

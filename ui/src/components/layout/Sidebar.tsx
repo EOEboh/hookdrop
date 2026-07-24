@@ -7,9 +7,9 @@ import { CreateEndpointModal } from '../endpoints/CreateEndpointModal'
 import { useEndpoints } from '../../hooks/useEndpoints'
 import { PlusIcon } from '../ui/icons'
 import { useBilling } from '../../context/BillingContext'
-import { usePostHog } from '@posthog/react'
 import { Logo } from '../ui/Logo'
 import { TourHelpButton } from '../onboarding/TourHelpButton'
+import { AccountMenu } from './AccountMenu'
 
 interface Props {
   session: Session
@@ -41,7 +41,6 @@ export function Sidebar({
   onSelectEndpoint, selectedEndpointId, activeEndpoint, onBackToTemporary, filters, onFilterChange, totalRequestCount,
   controlledTab, onTabChange, hideTabSwitcher = false,
 }: Props) {
-  const posthog = usePostHog()
   const [internalTab, setInternalTab] = useState<Tab>('session')
   const tab = controlledTab ?? internalTab
   function setTab(t: Tab) {
@@ -52,50 +51,15 @@ export function Sidebar({
   const { endpoints, createEndpoint, deleteEndpoint } = useEndpoints()
   const { isPro } = useBilling()
 
-
-   function handleLogout() {
-    posthog?.capture('user_logged_out')
-    onLogout()
-  }
-
   return (
     <aside className="w-full lg:w-80 lg:min-w-[280px] flex flex-col border-r border-border bg-base h-full lg:h-screen lg:sticky lg:top-0">
 
-{/* Logo */}
-      <div className="px-4 py-4 border-b border-border flex items-center justify-between">
+      {/* Logo + account controls */}
+      <div className="px-4 py-4 border-b border-border flex items-center justify-between gap-2">
         <Logo size="sm" />
-        <div className="flex items-center gap-3">
-          <a
-           href="/settings/billing"
-            className={`text-xs transition-colors duration-200 ease-(--ease-considered) ${
-              isPro
-                ? 'text-indigo-400 hover:text-indigo-300'
-                : 'text-faint hover:text-muted'
-            }`}
-          >
-            {isPro ? '⚡ Pro' : 'Upgrade'}
-          </a>
-          <a
-           href="/settings/tokens"
-            className="text-xs text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
-          >
-            API tokens
-          </a>
-          <a
-           href="https://status.hookdrop.app"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-xs text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
-    >
-      Status
-    </a>
-          <button
-            onClick={handleLogout}
-            className="text-xs text-faint hover:text-muted transition-colors duration-200 ease-(--ease-considered)"
-          >
-            Log out
-          </button>
+        <div className="flex items-center gap-2 shrink-0">
           <TourHelpButton />
+          <AccountMenu isPro={isPro} onLogout={onLogout} />
         </div>
       </div>
       
@@ -149,7 +113,7 @@ export function Sidebar({
     <div className="p-3 border-b border-border">
       <button
         onClick={() => setShowModal(true)}
-        className="w-full py-2.5 rounded-lg border border-dashed border-border-strong hover:border-indigo-500/50 hover:bg-indigo-500/[0.04] active:scale-[0.99] text-xs text-muted hover:text-indigo-400 transition-all duration-200 ease-(--ease-considered) flex items-center justify-center gap-2"
+        className="w-full py-2.5 rounded-lg border border-dashed border-border-strong hover:border-indigo-500/50 hover:bg-indigo-500/[0.04] active:scale-[0.98] text-xs text-muted hover:text-indigo-400 transition-all duration-200 ease-(--ease-considered) flex items-center justify-center gap-2"
       >
         <PlusIcon className="w-3.5 h-3.5" />
         New named endpoint
