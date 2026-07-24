@@ -14,7 +14,7 @@ export function MainPanel({ selected, activeEndpoint = null }: Props) {
     // configure verification secrets before any webhook has ever arrived.
     if (activeEndpoint) {
       return (
-        <main className="flex-1 min-w-0 h-screen overflow-y-auto bg-base-alt animate-fade-in">
+        <main className="flex-1 min-w-0 h-full lg:h-screen overflow-y-auto bg-base-alt animate-fade-in">
           <EndpointDetail endpoint={activeEndpoint} />
         </main>
       )
@@ -36,7 +36,7 @@ export function MainPanel({ selected, activeEndpoint = null }: Props) {
     // key forces remount + fade-in animation on request change
     <main
       key={selected.id}
-      className="flex-1 min-w-0 h-screen overflow-y-auto bg-base-alt animate-fade-in"
+      className="flex-1 min-w-0 h-full lg:h-screen overflow-y-auto bg-base-alt animate-fade-in"
     >
       <RequestDetail request={selected} />
     </main>

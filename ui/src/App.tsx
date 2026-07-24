@@ -199,7 +199,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0 pb-[52px] lg:pb-0">
+      <div className="flex flex-1 min-h-0 pb-[calc(52px+env(safe-area-inset-bottom))] lg:pb-0">
         <div className={`${mobileTab === 'detail' ? 'hidden' : 'flex'} lg:flex w-full lg:w-auto`}>
           <Sidebar
             session={session}
