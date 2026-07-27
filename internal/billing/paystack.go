@@ -184,9 +184,12 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 		var sub struct {
 			SubscriptionCode string `json:"subscription_code"`
 			Status           string `json:"status"`
-			PlanCode         string `json:"plan"`
-			EmailToken       string `json:"email_token"`
-			NextPaymentDate  string `json:"next_payment_date"`
+			// plan is an OBJECT on subscription events, though it is a bare
+			// code string on transaction payloads. Decoding it as a string
+			// fails the whole parse, which took subscription.create with it.
+			Plan            json.RawMessage `json:"plan"`
+			EmailToken      string          `json:"email_token"`
+			NextPaymentDate string          `json:"next_payment_date"`
 			// Transaction metadata, where our user_id is passed at checkout.
 			// Paystack returns this as an object, an empty string, or the
 			// integer 0, so it cannot be decoded into a fixed shape.
@@ -215,11 +218,14 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			}
 		}
 
+		// Handles both shapes; on subscription events this is the object form.
+		planInfo, _ := ParsePaystackPlan(sub.Plan, nil)
+
 		return &WebhookEvent{
 			Type:           normalisePaystackEvent(event.Event),
 			CustomerID:     sub.Customer.CustomerCode,
 			SubscriptionID: sub.SubscriptionCode,
-			Plan:           p.planFromCode(sub.PlanCode),
+			Plan:           p.planFromCode(planInfo.Code),
 			Status:         normalisePaystackStatus(sub.Status),
 			Currency:       "ngn",
 			PeriodEnd:      periodEnd,

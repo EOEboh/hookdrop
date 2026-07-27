@@ -343,3 +343,86 @@ func TestHandleWebhook_NotRenewFlagsCancelAtPeriodEnd(t *testing.T) {
 		})
 	}
 }
+
+// realSubscriptionCreatePayload is a verbatim capture of what Paystack
+// actually sent on subscription.create (test mode, 2026-07-28), trimmed of
+// identifying values. Note data.plan is an OBJECT here, though it is a bare
+// code string on transaction payloads — decoding it as a string failed the
+// whole parse and dropped the event with a 400.
+const realSubscriptionCreatePayload = `{
+  "event": "subscription.create",
+  "data": {
+    "id": 1234567,
+    "domain": "test",
+    "status": "active",
+    "subscription_code": "SUB_xhhcq6g7fl194tn",
+    "email_token": "abc123",
+    "amount": 350000,
+    "cron_expression": "0 0 28 * *",
+    "next_payment_date": "2026-08-28T00:00:00.000Z",
+    "open_invoice": null,
+    "createdAt": "2026-07-28T00:37:41.000Z",
+    "integration": 111,
+    "plan": {
+      "id": 3720599,
+      "name": "hookdrop Pro Monthly",
+      "plan_code": "PLN_monthly",
+      "description": "Pro Monthly",
+      "amount": 350000,
+      "interval": "monthly",
+      "send_invoices": 1,
+      "send_sms": 1,
+      "currency": "NGN"
+    },
+    "authorization": {"authorization_code": "AUTH_x", "channel": "card"},
+    "customer": {
+      "id": 999,
+      "customer_code": "CUS_mpzcgx3mniosw1j",
+      "email": "buyer@example.com",
+      "metadata": null
+    },
+    "invoice_limit": 0,
+    "split_code": null,
+    "most_recent_invoice": null
+  }
+}`
+
+// Regression test for the bug the first real delivery exposed.
+func TestHandleWebhook_RealSubscriptionCreatePayload(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{
+		ProMonthly: "PLN_monthly", ProAnnual: "PLN_annual",
+	})
+
+	ev, err := p.HandleWebhook(
+		[]byte(realSubscriptionCreatePayload),
+		sign512(t, realSubscriptionCreatePayload),
+	)
+	if err != nil {
+		t.Fatalf("real payload failed to parse: %v", err)
+	}
+	if ev == nil {
+		t.Fatal("real subscription.create produced no event")
+	}
+
+	// The object-shaped plan must still resolve to our plan.
+	if ev.Plan != "pro" {
+		t.Errorf("Plan = %q, want pro — the object-shaped plan was not recognised", ev.Plan)
+	}
+	if ev.SubscriptionID != "SUB_xhhcq6g7fl194tn" {
+		t.Errorf("SubscriptionID = %q, want the SUB_ code", ev.SubscriptionID)
+	}
+	// metadata is null on subscription events, so the customer code is the
+	// only key that can resolve the user.
+	if ev.UserID != "" {
+		t.Errorf("UserID = %q, want empty — Paystack sends metadata:null here", ev.UserID)
+	}
+	if ev.CustomerID != "CUS_mpzcgx3mniosw1j" {
+		t.Errorf("CustomerID = %q, want the customer code", ev.CustomerID)
+	}
+	if ev.PeriodEnd == 0 {
+		t.Error("PeriodEnd = 0, want next_payment_date")
+	}
+	if ev.Status != "active" {
+		t.Errorf("Status = %q, want active", ev.Status)
+	}
+}
