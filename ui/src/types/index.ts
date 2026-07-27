@@ -77,7 +77,7 @@ export interface Subscription {
   id: string
   user_id: string
   plan: 'free' | 'pro'
-  provider: 'stripe' | 'paystack' | ''
+  provider: 'lemonsqueezy' | 'paystack' | ''
   status: 'active' | 'trialing' | 'past_due' | 'canceled'
   current_period_end: string | null
   trial_end: string | null
