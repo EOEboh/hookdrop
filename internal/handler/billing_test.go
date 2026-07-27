@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -563,5 +564,120 @@ func TestWebhook_IgnoredEventRecordedButNotApplied(t *testing.T) {
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "free" {
 		t.Errorf("plan = %q, want free — order_created must not touch the subscription", sub.Plan)
+	}
+}
+
+// ── Paystack renewals ────────────────────────────────────────────────────
+
+const paystackSecret = "paystack-hook-secret"
+
+func newPaystackWebhookHandler(t *testing.T) (*BillingHandler, *models.User) {
+	t.Helper()
+	st, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	user, err := st.GetOrCreateUser("ngn@example.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	ps := billing.NewPaystackProvider("sk", paystackSecret, billing.PaystackPlans{
+		ProMonthly: testPlanMonthly, ProAnnual: testPlanAnnual,
+	})
+	return &BillingHandler{Store: st, Paystack: ps, AppURL: "http://localhost:5173"}, user
+}
+
+func postPaystackWebhook(t *testing.T, h *BillingHandler, payload string) *httptest.ResponseRecorder {
+	t.Helper()
+	mac := hmac.New(sha512.New, []byte(paystackSecret))
+	mac.Write([]byte(payload))
+	req := httptest.NewRequest(http.MethodPost, "/billing/webhook/paystack",
+		strings.NewReader(payload))
+	req.Header.Set("X-Paystack-Signature", hex.EncodeToString(mac.Sum(nil)))
+	rec := httptest.NewRecorder()
+	h.PaystackWebhook(rec, req)
+	return rec
+}
+
+// A renewal must move current_period_end forward and must not blank the
+// stored subscription code, which charge.success does not carry.
+func TestPaystackRenewalAdvancesPeriodWithoutLosingSubID(t *testing.T) {
+	h, user := newPaystackWebhookHandler(t)
+
+	original := time.Now().UTC().Add(2 * 24 * time.Hour)
+	if err := h.Store.UpsertSubscription(&models.Subscription{
+		UserID:             user.ID,
+		Plan:               "pro",
+		Provider:           "paystack",
+		ProviderCustomerID: "CUS_renew",
+		ProviderSubID:      "SUB_original",
+		Status:             "active",
+		CurrentPeriodEnd:   &original,
+		Currency:           "ngn",
+		Interval:           "month",
+		CreatedAt:          time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	paidAt := time.Now().UTC().Truncate(time.Second)
+	payload := fmt.Sprintf(`{"event":"charge.success","data":{
+      "reference":"T_renewal","amount":%d,"currency":"NGN","status":"success",
+      "paid_at":%q,"metadata":0,
+      "customer":{"customer_code":"CUS_renew","email":"ngn@example.com"},
+      "plan":%q,
+      "plan_object":{"plan_code":%q,"amount":%d,"interval":"monthly"}}}`,
+		monthlyKobo, paidAt.Format(time.RFC3339), testPlanMonthly, testPlanMonthly, monthlyKobo)
+
+	if rec := postPaystackWebhook(t, h, payload); rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.ProviderSubID != "SUB_original" {
+		t.Errorf("provider_sub_id = %q, want SUB_original — the renewal blanked it", sub.ProviderSubID)
+	}
+	if sub.Plan != "pro" || sub.Status != "active" {
+		t.Errorf("plan/status = %s/%s, want pro/active", sub.Plan, sub.Status)
+	}
+	if sub.CurrentPeriodEnd == nil || !sub.CurrentPeriodEnd.After(original) {
+		t.Errorf("current_period_end = %v, want later than %v", sub.CurrentPeriodEnd, original)
+	}
+}
+
+// A one-off charge with no plan is not a subscription payment.
+func TestPaystackChargeWithoutPlanIsIgnored(t *testing.T) {
+	h, user := newPaystackWebhookHandler(t)
+
+	payload := `{"event":"charge.success","data":{
+      "reference":"T_oneoff","amount":50000,"currency":"NGN","status":"success",
+      "metadata":0,"plan":"",
+      "customer":{"customer_code":"CUS_x","email":"ngn@example.com"}}}`
+
+	if rec := postPaystackWebhook(t, h, payload); rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Errorf("plan = %q, want free — a plan-less charge granted Pro", sub.Plan)
+	}
+}
+
+// Someone else's plan on the same integration must not grant our Pro.
+func TestPaystackForeignPlanChargeIgnored(t *testing.T) {
+	h, user := newPaystackWebhookHandler(t)
+
+	payload := `{"event":"charge.success","data":{
+      "reference":"T_other","amount":100000,"currency":"NGN","status":"success",
+      "metadata":0,"plan":"PLN_not_ours",
+      "plan_object":{"plan_code":"PLN_not_ours","amount":100000},
+      "customer":{"customer_code":"CUS_x","email":"ngn@example.com"}}}`
+
+	if rec := postPaystackWebhook(t, h, payload); rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Errorf("plan = %q, want free", sub.Plan)
 	}
 }
