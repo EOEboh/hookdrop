@@ -222,7 +222,12 @@ func (h *BillingHandler) handleWebhook(
 	}
 	if event != nil {
 		record.UserID = event.UserID
+		// Scope the ordering check by subscription where there is one, else by
+		// customer — charge.success identifies only the customer.
 		record.ObjectID = event.SubscriptionID
+		if record.ObjectID == "" {
+			record.ObjectID = event.CustomerID
+		}
 		if event.EventAt > 0 {
 			t := time.Unix(event.EventAt, 0).UTC()
 			record.EventAt = &t
@@ -378,12 +383,22 @@ func (h *BillingHandler) processWebhookEvent(
 		plan = "free"
 	}
 
+	// charge.success names no subscription, so renewals carry an empty
+	// SubscriptionID. The upsert writes every column, so passing it through
+	// would blank the stored subscription code and break cancellation.
+	providerSubID := event.SubscriptionID
+	if providerSubID == "" {
+		if existing, err := h.Store.GetSubscription(userID); err == nil {
+			providerSubID = existing.ProviderSubID
+		}
+	}
+
 	sub := &models.Subscription{
 		UserID:             userID,
 		Plan:               plan,
 		Provider:           providerName,
 		ProviderCustomerID: event.CustomerID,
-		ProviderSubID:      event.SubscriptionID,
+		ProviderSubID:      providerSubID,
 		Status:             event.Status,
 		CurrentPeriodEnd:   periodEnd,
 		TrialEnd:           trialEnd,
@@ -521,7 +536,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// charged and is active from now. trial_end stays nil; only the Lemon
 	// Squeezy path produces trialing subscriptions.
 	subStatus := "active"
-	pe := now.Add(paystackCycle(interval))
+	pe := now.Add(billing.PaystackBillingPeriod(interval))
 	periodEnd := &pe
 
 	customerCode := tx.CustomerCode
@@ -589,16 +604,6 @@ func (h *BillingHandler) resolveWebhookUser(
 	}
 
 	return nil, "", nil
-}
-
-// paystackCycle is one billing period for an interval. Paystack does not
-// report the next payment date on the verify response, so the period end is
-// derived; renewals correct it from the charge.success webhook.
-func paystackCycle(interval string) time.Duration {
-	if interval == "year" {
-		return 365 * 24 * time.Hour
-	}
-	return 30 * 24 * time.Hour
 }
 
 // POST /billing/cancel

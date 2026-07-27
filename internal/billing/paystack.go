@@ -225,8 +225,75 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 				sub.CreatedAtCamel, sub.CreatedAtSnake,
 			),
 		}, nil
+
+	case "charge.success":
+		// Subscription renewals arrive as charge.success — Paystack sends no
+		// subscription.* event when a recurring payment goes through. Without
+		// handling it, current_period_end is written once at signup and then
+		// silently goes stale.
+		var charge struct {
+			Reference   string          `json:"reference"`
+			Amount      int             `json:"amount"`
+			Currency    string          `json:"currency"`
+			Status      string          `json:"status"`
+			Plan        json.RawMessage `json:"plan"`        // code string or object
+			PlanObject  json.RawMessage `json:"plan_object"` // object form
+			Metadata    json.RawMessage `json:"metadata"`
+			PaidAtSnake string          `json:"paid_at"`
+			PaidAtCamel string          `json:"paidAt"`
+			CreatedAt   string          `json:"createdAt"`
+			Customer    struct {
+				CustomerCode string `json:"customer_code"`
+				Email        string `json:"email"`
+			} `json:"customer"`
+		}
+		if err := json.Unmarshal(event.Data, &charge); err != nil {
+			return nil, err
+		}
+
+		planInfo, ok := ParsePaystackPlan(charge.Plan, charge.PlanObject)
+		if !ok {
+			// A one-off charge, not a subscription payment. Nothing to apply.
+			return nil, nil
+		}
+		interval, ours := p.IntervalForPlanCode(planInfo.Code)
+		if !ours {
+			// Someone else's plan on this integration.
+			return nil, nil
+		}
+
+		paidAt := firstParsedTime(charge.PaidAtSnake, charge.PaidAtCamel, charge.CreatedAt)
+		if paidAt == 0 {
+			paidAt = time.Now().Unix()
+		}
+
+		return &WebhookEvent{
+			Type:       "subscription.updated",
+			CustomerID: charge.Customer.CustomerCode,
+			// charge.success names no subscription, so this cannot set
+			// provider_sub_id — the user resolves by customer code.
+			Plan:     "pro",
+			Status:   "active",
+			Currency: "ngn",
+			Interval: interval,
+			// Paystack does not report the next payment date here, so the
+			// period is advanced one interval from the payment.
+			PeriodEnd: time.Unix(paidAt, 0).Add(PaystackBillingPeriod(interval)).Unix(),
+			UserID:    paystackMetadataUserID(charge.Metadata),
+			EventAt:   paidAt,
+		}, nil
 	}
 	return nil, nil
+}
+
+// PaystackBillingPeriod is one billing period for an interval. Paystack
+// reports no next-payment date on either the verify response or
+// charge.success, so the period end is derived from this.
+func PaystackBillingPeriod(interval string) time.Duration {
+	if interval == "year" {
+		return 365 * 24 * time.Hour
+	}
+	return 30 * 24 * time.Hour
 }
 
 // paystackMetadataUserID extracts user_id from Paystack transaction metadata.
