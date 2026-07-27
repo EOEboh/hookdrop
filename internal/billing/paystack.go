@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -71,9 +72,11 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 		planCode = p.Plans.ProAnnual
 	}
 
-	// Trial via Paystack: start_date 14 days from now
-	startDate := time.Now().Add(14 * 24 * time.Hour).Format("2006-01-02")
-
+	// No start_date. Paystack has no native free trial: passing a plan to
+	// transaction/initialize overrides the amount and charges the plan price
+	// immediately, so a future start_date only shifts the *next* debit while
+	// the customer is billed today. Sending it implied a trial that never
+	// existed.
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"email":        params.Email,
 		"plan":         planCode,
@@ -82,12 +85,11 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 			"user_id":    params.UserID,
 			"cancel_url": params.CancelURL,
 		},
-		"start_date": startDate,
 	})
 
 	req, err := http.NewRequestWithContext(ctx,
 		"POST",
-		"https://api.paystack.co/transaction/initialize",
+		p.baseURL()+"/transaction/initialize",
 		bytes.NewBuffer(reqBody),
 	)
 	if err != nil {
@@ -96,7 +98,7 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("paystack initialize: %w", err)
 	}
@@ -123,13 +125,65 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 	}, nil
 }
 
+// subscriptionEmailToken fetches the email_token Paystack requires to disable
+// a subscription. It is only present on the subscription object, so it has to
+// be read at cancel time.
+func (p *PaystackProvider) subscriptionEmailToken(ctx context.Context, subCode string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		p.baseURL()+"/subscription/"+url.PathEscape(subCode), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
+
+	resp, err := p.client().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Status bool `json:"status"`
+		Data   struct {
+			EmailToken string `json:"email_token"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if !out.Status || out.Data.EmailToken == "" {
+		return "", fmt.Errorf("paystack: no email_token for %s", subCode)
+	}
+	return out.Data.EmailToken, nil
+}
+
 func (p *PaystackProvider) CancelSubscription(ctx context.Context, subCode string) error {
+	if subCode == "" {
+		return fmt.Errorf("paystack: empty subscription code")
+	}
+	// Disabling needs a subscription code. A transaction reference cannot be
+	// cancelled, and pretending otherwise reports success while the customer
+	// keeps being billed.
+	if !strings.HasPrefix(subCode, "SUB_") {
+		return fmt.Errorf("paystack: %q is a transaction reference, not a subscription code", subCode)
+	}
+
+	// /subscription/disable rejects an empty token with
+	// `"token" is not allowed to be empty`, so this is required, not optional.
+	token, err := p.subscriptionEmailToken(ctx, subCode)
+	if err != nil {
+		return err
+	}
+
+	body, err := json.Marshal(map[string]string{"code": subCode, "token": token})
+	if err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx,
 		"POST",
-		fmt.Sprintf("https://api.paystack.co/subscription/disable"),
-		strings.NewReader(fmt.Sprintf(
-			`{"code":"%s","token":""}`, subCode,
-		)),
+		p.baseURL()+"/subscription/disable",
+		bytes.NewReader(body),
 	)
 	if err != nil {
 		return err
@@ -137,11 +191,25 @@ func (p *PaystackProvider) CancelSubscription(ctx context.Context, subCode strin
 	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client().Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("paystack disable subscription %d: %s", resp.StatusCode, msg)
+	}
+	// Paystack answers 200 with status:false for logical failures, so the
+	// status code alone is not enough.
+	var out struct {
+		Status  bool   `json:"status"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(msg, &out); err == nil && !out.Status {
+		return fmt.Errorf("paystack disable subscription failed: %s", out.Message)
+	}
 	return nil
 }
 
@@ -174,9 +242,16 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 		var sub struct {
 			SubscriptionCode string `json:"subscription_code"`
 			Status           string `json:"status"`
-			PlanCode         string `json:"plan"`
-			EmailToken       string `json:"email_token"`
-			NextPaymentDate  string `json:"next_payment_date"`
+			// plan is an OBJECT on subscription events, though it is a bare
+			// code string on transaction payloads. Decoding it as a string
+			// fails the whole parse, which took subscription.create with it.
+			Plan            json.RawMessage `json:"plan"`
+			EmailToken      string          `json:"email_token"`
+			NextPaymentDate string          `json:"next_payment_date"`
+			// Transaction metadata, where our user_id is passed at checkout.
+			// Paystack returns this as an object, an empty string, or the
+			// integer 0, so it cannot be decoded into a fixed shape.
+			Metadata json.RawMessage `json:"metadata"`
 			// Paystack spells these both ways across payloads.
 			UpdatedAtCamel string `json:"updatedAt"`
 			UpdatedAtSnake string `json:"updated_at"`
@@ -201,22 +276,132 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			}
 		}
 
+		// Handles both shapes; on subscription events this is the object form.
+		planInfo, _ := ParsePaystackPlan(sub.Plan, nil)
+		// Without this the upsert wrote an empty interval over the stored one.
+		interval, _ := p.IntervalForPlanCode(planInfo.Code)
+
 		return &WebhookEvent{
 			Type:           normalisePaystackEvent(event.Event),
 			CustomerID:     sub.Customer.CustomerCode,
 			SubscriptionID: sub.SubscriptionCode,
-			Plan:           p.planFromCode(sub.PlanCode),
+			Plan:           p.planFromCode(planInfo.Code),
 			Status:         normalisePaystackStatus(sub.Status),
 			Currency:       "ngn",
+			Interval:       interval,
 			PeriodEnd:      periodEnd,
-			UserID:         sub.Customer.Metadata.UserID,
+			// subscription.not_renew means the customer cancelled but keeps
+			// access until the period ends. Without this the upsert wrote
+			// cancel_at_period_end=false and silently undid the cancellation.
+			CancelAtEnd: event.Event == "subscription.not_renew" ||
+				event.Event == "subscription.disable",
+			// Transaction metadata first; customer metadata is a different
+			// field and is usually null.
+			UserID: firstNonEmpty(
+				paystackMetadataUserID(sub.Metadata),
+				sub.Customer.Metadata.UserID,
+			),
 			EventAt: firstParsedTime(
 				sub.UpdatedAtCamel, sub.UpdatedAtSnake,
 				sub.CreatedAtCamel, sub.CreatedAtSnake,
 			),
 		}, nil
+
+	case "charge.success":
+		// Subscription renewals arrive as charge.success — Paystack sends no
+		// subscription.* event when a recurring payment goes through. Without
+		// handling it, current_period_end is written once at signup and then
+		// silently goes stale.
+		var charge struct {
+			Reference   string          `json:"reference"`
+			Amount      int             `json:"amount"`
+			Currency    string          `json:"currency"`
+			Status      string          `json:"status"`
+			Plan        json.RawMessage `json:"plan"`        // code string or object
+			PlanObject  json.RawMessage `json:"plan_object"` // object form
+			Metadata    json.RawMessage `json:"metadata"`
+			PaidAtSnake string          `json:"paid_at"`
+			PaidAtCamel string          `json:"paidAt"`
+			CreatedAt   string          `json:"createdAt"`
+			Customer    struct {
+				CustomerCode string `json:"customer_code"`
+				Email        string `json:"email"`
+			} `json:"customer"`
+		}
+		if err := json.Unmarshal(event.Data, &charge); err != nil {
+			return nil, err
+		}
+
+		planInfo, ok := ParsePaystackPlan(charge.Plan, charge.PlanObject)
+		if !ok {
+			// A one-off charge, not a subscription payment. Nothing to apply.
+			return nil, nil
+		}
+		interval, ours := p.IntervalForPlanCode(planInfo.Code)
+		if !ours {
+			// Someone else's plan on this integration.
+			return nil, nil
+		}
+
+		paidAt := firstParsedTime(charge.PaidAtSnake, charge.PaidAtCamel, charge.CreatedAt)
+		if paidAt == 0 {
+			paidAt = time.Now().Unix()
+		}
+
+		return &WebhookEvent{
+			Type:       "subscription.updated",
+			CustomerID: charge.Customer.CustomerCode,
+			// charge.success names no subscription, so this cannot set
+			// provider_sub_id — the user resolves by customer code.
+			Plan:     "pro",
+			Status:   "active",
+			Currency: "ngn",
+			Interval: interval,
+			// Paystack does not report the next payment date here, so the
+			// period is advanced one interval from the payment.
+			PeriodEnd: time.Unix(paidAt, 0).Add(PaystackBillingPeriod(interval)).Unix(),
+			UserID:    paystackMetadataUserID(charge.Metadata),
+			EventAt:   paidAt,
+		}, nil
 	}
 	return nil, nil
+}
+
+// PaystackBillingPeriod is one billing period for an interval. Paystack
+// reports no next-payment date on either the verify response or
+// charge.success, so the period end is derived from this.
+func PaystackBillingPeriod(interval string) time.Duration {
+	if interval == "year" {
+		return 365 * 24 * time.Hour
+	}
+	return 30 * 24 * time.Hour
+}
+
+// paystackMetadataUserID extracts user_id from Paystack transaction metadata.
+//
+// Paystack returns metadata as an object when set, but as an empty string or
+// the integer 0 when it is not, so decoding it into a struct fails outright on
+// those transactions. Returns "" for anything that is not an object.
+func paystackMetadataUserID(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var obj struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(obj.UserID)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // firstParsedTime returns the first value that parses as RFC3339, as a Unix

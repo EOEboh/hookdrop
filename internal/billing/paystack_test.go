@@ -2,13 +2,26 @@ package billing
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+const testSecret512 = "paystack-test-secret"
+
+func sign512(t *testing.T, payload string) string {
+	t.Helper()
+	mac := hmac.New(sha512.New, []byte(testSecret512))
+	mac.Write([]byte(payload))
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 func TestParsePaystackPlan(t *testing.T) {
 	cases := []struct {
@@ -222,5 +235,194 @@ func TestVerifyTransaction_EmptyReference(t *testing.T) {
 	}
 	if *calls != 0 {
 		t.Errorf("made %d requests for an empty reference, want 0", *calls)
+	}
+}
+
+func TestPaystackMetadataUserID(t *testing.T) {
+	cases := map[string]struct {
+		raw  string
+		want string
+	}{
+		// Paystack sends the integer 0 when no metadata was set. Decoding that
+		// into a struct fails, which must not take the whole event with it.
+		"integer zero":     {`0`, ""},
+		"empty string":     {`""`, ""},
+		"null":             {`null`, ""},
+		"absent":           {``, ""},
+		"object":           {`{"user_id":"user-123"}`, "user-123"},
+		"object padded":    {`{"user_id":"  user-123  "}`, "user-123"},
+		"object other key": {`{"cancel_url":"https://x"}`, ""},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := paystackMetadataUserID(json.RawMessage(c.raw)); got != c.want {
+				t.Errorf("paystackMetadataUserID(%s) = %q, want %q", c.raw, got, c.want)
+			}
+		})
+	}
+}
+
+// The user_id lives in transaction metadata; customer.metadata is a separate
+// field that is usually null.
+func TestHandleWebhook_ReadsUserIDFromTransactionMetadata(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{ProMonthly: "PLN_monthly"})
+
+	payload := `{"event":"subscription.create","data":{
+      "subscription_code":"SUB_abc","status":"active","plan":"PLN_monthly",
+      "next_payment_date":"2026-08-27T00:00:00.000Z",
+      "metadata":{"user_id":"user-from-transaction"},
+      "createdAt":"2026-07-27T00:00:00.000Z",
+      "customer":{"customer_code":"CUS_1","email":"a@b.c","metadata":null}}}`
+
+	ev, err := p.HandleWebhook([]byte(payload), sign512(t, payload))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ev.UserID != "user-from-transaction" {
+		t.Errorf("UserID = %q, want user-from-transaction", ev.UserID)
+	}
+	if ev.SubscriptionID != "SUB_abc" {
+		t.Errorf("SubscriptionID = %q, want SUB_abc", ev.SubscriptionID)
+	}
+	if ev.EventAt == 0 {
+		t.Error("EventAt = 0, want the parsed createdAt")
+	}
+}
+
+// metadata:0 must not abort the parse — the event still has to resolve by
+// customer code downstream.
+func TestHandleWebhook_SurvivesIntegerMetadata(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{ProMonthly: "PLN_monthly"})
+
+	payload := `{"event":"subscription.create","data":{
+      "subscription_code":"SUB_abc","status":"active","plan":"PLN_monthly",
+      "metadata":0,
+      "customer":{"customer_code":"CUS_1","email":"a@b.c","metadata":null}}}`
+
+	ev, err := p.HandleWebhook([]byte(payload), sign512(t, payload))
+	if err != nil {
+		t.Fatalf("integer metadata aborted the parse: %v", err)
+	}
+	if ev.UserID != "" {
+		t.Errorf("UserID = %q, want empty", ev.UserID)
+	}
+	if ev.CustomerID != "CUS_1" {
+		t.Errorf("CustomerID = %q, want CUS_1 — the fallback key", ev.CustomerID)
+	}
+}
+
+// subscription.not_renew means "cancelled, but access continues". Treating it
+// as a plain update wrote cancel_at_period_end=false and undid the cancel.
+func TestHandleWebhook_NotRenewFlagsCancelAtPeriodEnd(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{ProMonthly: "PLN_monthly"})
+
+	cases := map[string]struct {
+		event    string
+		wantFlag bool
+	}{
+		"not_renew": {"subscription.not_renew", true},
+		"disable":   {"subscription.disable", true},
+		"create":    {"subscription.create", false},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"event":%q,"data":{
+              "subscription_code":"SUB_abc","status":"active","plan":"PLN_monthly",
+              "next_payment_date":"2026-08-27T00:00:00Z","metadata":0,
+              "customer":{"customer_code":"CUS_1","email":"a@b.c"}}}`, c.event)
+
+			ev, err := p.HandleWebhook([]byte(payload), sign512(t, payload))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if ev.CancelAtEnd != c.wantFlag {
+				t.Errorf("CancelAtEnd = %t, want %t", ev.CancelAtEnd, c.wantFlag)
+			}
+		})
+	}
+}
+
+// realSubscriptionCreatePayload is a verbatim capture of what Paystack
+// actually sent on subscription.create (test mode, 2026-07-28), trimmed of
+// identifying values. Note data.plan is an OBJECT here, though it is a bare
+// code string on transaction payloads — decoding it as a string failed the
+// whole parse and dropped the event with a 400.
+const realSubscriptionCreatePayload = `{
+  "event": "subscription.create",
+  "data": {
+    "id": 1234567,
+    "domain": "test",
+    "status": "active",
+    "subscription_code": "SUB_xhhcq6g7fl194tn",
+    "email_token": "abc123",
+    "amount": 350000,
+    "cron_expression": "0 0 28 * *",
+    "next_payment_date": "2026-08-28T00:00:00.000Z",
+    "open_invoice": null,
+    "createdAt": "2026-07-28T00:37:41.000Z",
+    "integration": 111,
+    "plan": {
+      "id": 3720599,
+      "name": "hookdrop Pro Monthly",
+      "plan_code": "PLN_monthly",
+      "description": "Pro Monthly",
+      "amount": 350000,
+      "interval": "monthly",
+      "send_invoices": 1,
+      "send_sms": 1,
+      "currency": "NGN"
+    },
+    "authorization": {"authorization_code": "AUTH_x", "channel": "card"},
+    "customer": {
+      "id": 999,
+      "customer_code": "CUS_mpzcgx3mniosw1j",
+      "email": "buyer@example.com",
+      "metadata": null
+    },
+    "invoice_limit": 0,
+    "split_code": null,
+    "most_recent_invoice": null
+  }
+}`
+
+// Regression test for the bug the first real delivery exposed.
+func TestHandleWebhook_RealSubscriptionCreatePayload(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{
+		ProMonthly: "PLN_monthly", ProAnnual: "PLN_annual",
+	})
+
+	ev, err := p.HandleWebhook(
+		[]byte(realSubscriptionCreatePayload),
+		sign512(t, realSubscriptionCreatePayload),
+	)
+	if err != nil {
+		t.Fatalf("real payload failed to parse: %v", err)
+	}
+	if ev == nil {
+		t.Fatal("real subscription.create produced no event")
+	}
+
+	// The object-shaped plan must still resolve to our plan.
+	if ev.Plan != "pro" {
+		t.Errorf("Plan = %q, want pro — the object-shaped plan was not recognised", ev.Plan)
+	}
+	if ev.SubscriptionID != "SUB_xhhcq6g7fl194tn" {
+		t.Errorf("SubscriptionID = %q, want the SUB_ code", ev.SubscriptionID)
+	}
+	// metadata is null on subscription events, so the customer code is the
+	// only key that can resolve the user.
+	if ev.UserID != "" {
+		t.Errorf("UserID = %q, want empty — Paystack sends metadata:null here", ev.UserID)
+	}
+	if ev.CustomerID != "CUS_mpzcgx3mniosw1j" {
+		t.Errorf("CustomerID = %q, want the customer code", ev.CustomerID)
+	}
+	if ev.PeriodEnd == 0 {
+		t.Error("PeriodEnd = 0, want next_payment_date")
+	}
+	if ev.Status != "active" {
+		t.Errorf("Status = %q, want active", ev.Status)
 	}
 }

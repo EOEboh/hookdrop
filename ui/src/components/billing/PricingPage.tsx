@@ -35,30 +35,40 @@ const PRO_FEATURES = [
   'Signature verification',
   'Request filtering + search',
   'Priority support',
-  '14-day free trial',
 ]
 
+// The free trial is a Lemon Squeezy feature. Paystack has no native trial
+// support, so NGN customers are charged on signup — advertising a trial to
+// them would be promising something we do not deliver.
+function proFeatures(currency: 'ngn' | 'usd'): string[] {
+  return currency === 'ngn'
+    ? PRO_FEATURES
+    : [...PRO_FEATURES, '14-day free trial']
+}
+
 const PRICE_DISPLAY = {
-  month: { amount: '₦3,500', suffix: '/mo after trial' },
-  year:  { amount: '₦33,600', suffix: '/yr after trial' },
+  month: { amount: '₦3,500', suffix: '/mo' },
+  year:  { amount: '₦33,600', suffix: '/yr' },
 } as const
 
 function PaystackButton({
   interval,
   email,
+  userId,
   loading,
   setLoading,
   onSuccess,
 }: {
   interval: 'month' | 'year'
   email: string
+  userId: string
   loading: boolean
   setLoading: (v: boolean) => void
   onSuccess: (ref: string, interval: 'month' | 'year') => void
 }) {
   const posthog = usePostHog() 
   const { getPaystackConfig } = useBilling()
-  const config = getPaystackConfig(interval, email)
+  const config = getPaystackConfig(interval, email, userId)
   const initializePayment = usePaystackPayment(config)
 
   const display = PRICE_DISPLAY[interval]
@@ -92,7 +102,7 @@ function PaystackButton({
     >
       {loading
         ? 'Processing…'
-        : `Start free trial: ${display.amount} ${display.suffix}`
+        : `Subscribe — ${display.amount}${display.suffix}`
       }
     </button>
   )
@@ -208,7 +218,7 @@ export function PricingPage() {
             </div>
 
             <div className="space-y-2.5 pt-4 border-t border-border">
-              {PRO_FEATURES.map(f => (
+              {proFeatures(currency).map(f => (
                 <div
                   key={f}
                   className="flex items-center gap-2.5 text-sm text-ink"
@@ -361,11 +371,13 @@ export function PricingPage() {
               </div>
               {prices.total
                 ? <p className="text-muted text-xs mt-1">{prices.total}</p>
-                : <p className="text-indigo-400 text-xs mt-1">14-day free trial</p>
+                : currency !== 'ngn'
+                  ? <p className="text-indigo-400 text-xs mt-1">14-day free trial</p>
+                  : null
               }
             </div>
             <ul className="space-y-2.5">
-              {PRO_FEATURES.map(f => (
+              {proFeatures(currency).map(f => (
                 <li
                   key={f}
                   className="flex items-start gap-2.5 text-sm text-ink"
@@ -388,6 +400,7 @@ export function PricingPage() {
                 <PaystackButton
                   interval={interval}
                   email={user?.email ?? ''}
+                  userId={user?.id ?? ''}
                   loading={payLoading}
                   setLoading={setPayLoading}
                   onSuccess={handlePaystackSuccess_}
