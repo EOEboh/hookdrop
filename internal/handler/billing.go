@@ -314,84 +314,104 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var result struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Status   string `json:"status"`
-			Amount   int    `json:"amount"` // 0 = trial charge
-			Customer struct {
-				CustomerCode string `json:"customer_code"`
-				Email        string `json:"email"`
-			} `json:"customer"`
-			Plan json.RawMessage `json:"plan"` // string or object
-		} `json:"data"`
+	// ── 1. The transaction must actually verify ──────────────────────────
+	// Exhausting the retries is a hard failure. Granting Pro on an
+	// unverifiable reference let any authenticated user upgrade themselves.
+	tx, err := ps.VerifyTransaction(r.Context(), body.Reference)
+	if err != nil {
+		log.Printf("VerifyPaystack: verification failed for user=%s ref=%s: %v",
+			user.ID, body.Reference, err)
+		http.Error(w, "could not verify payment", http.StatusBadGateway)
+		return
 	}
 
-	var lastErr error
-	delays := []time.Duration{0, 1 * time.Second, 2 * time.Second}
-
-	for i, delay := range delays {
-		if delay > 0 {
-			time.Sleep(delay)
-		}
-
-		req, err := http.NewRequestWithContext(
-			r.Context(), "GET",
-			"https://api.paystack.co/transaction/verify/"+body.Reference,
-			nil,
-		)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		req.Header.Set("Authorization", "Bearer "+ps.SecretKey)
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			log.Printf("VerifyPaystack: attempt %d HTTP error: %v", i+1, err)
-			lastErr = err
-			continue
-		}
-
-		decodeErr := json.NewDecoder(resp.Body).Decode(&result)
-		resp.Body.Close()
-
-		if decodeErr != nil {
-			log.Printf("VerifyPaystack: attempt %d decode error: %v", i+1, decodeErr)
-			lastErr = decodeErr
-			continue
-		}
-
-		log.Printf("VerifyPaystack: attempt %d — status=%v data.status=%s amount=%d customer=%s",
-			i+1, result.Status, result.Data.Status,
-			result.Data.Amount, result.Data.Customer.CustomerCode)
-
-		if result.Status && result.Data.Status == "success" {
-			lastErr = nil
-			break
-		}
-
-		lastErr = fmt.Errorf("paystack: status=%v data.status=%s message=%s",
-			result.Status, result.Data.Status, result.Message)
+	// ── 2. Currency ──────────────────────────────────────────────────────
+	if !strings.EqualFold(tx.Currency, "NGN") {
+		log.Printf("VerifyPaystack: rejecting non-NGN transaction user=%s ref=%s currency=%s",
+			user.ID, body.Reference, tx.Currency)
+		http.Error(w, "unsupported currency", http.StatusBadRequest)
+		return
 	}
 
-	if lastErr != nil {
-		log.Printf("VerifyPaystack: retries exhausted: %v — proceeding with upsert", lastErr)
+	// ── 3+4. The plan must be one of ours, and it decides the interval ───
+	// The client-supplied body.Interval is ignored: it drives
+	// current_period_end, so trusting it let a monthly subscriber claim a
+	// year of access.
+	interval, known := ps.IntervalForPlanCode(tx.Plan.Code)
+	if !known {
+		log.Printf("VerifyPaystack: rejecting unknown plan user=%s ref=%s plan=%q",
+			user.ID, body.Reference, tx.Plan.Code)
+		http.Error(w, "transaction is not for a hookdrop plan", http.StatusBadRequest)
+		return
+	}
+	if body.Interval != "" && body.Interval != interval {
+		log.Printf("VerifyPaystack: client claimed interval=%q, plan %s says %q — using %q",
+			body.Interval, tx.Plan.Code, interval, interval)
 	}
 
-	log.Printf("VerifyPaystack: interval=%s amount=%d is_trial=%v",
-		body.Interval, result.Data.Amount, result.Data.Amount == 0)
+	// ── 5. Amount must match the plan (or be a zero-charge trial) ────────
+	isTrial := tx.Amount == 0
+	switch {
+	case isTrial:
+		// Paystack charges ₦0 for the first transaction on a plan with a
+		// trial. Explicitly allowed.
+	case !tx.Plan.AmountKnown:
+		// Paystack returned a bare plan code with no plan object. The plan
+		// code check above already carries the weight here — attaching our
+		// plan code makes Paystack charge that plan's price — so accept, but
+		// say so.
+		log.Printf("WARNING: VerifyPaystack: plan %s amount unknown, cannot cross-check charge of %d (user=%s ref=%s)",
+			tx.Plan.Code, tx.Amount, user.ID, body.Reference)
+	case tx.Amount != tx.Plan.Amount:
+		log.Printf("VerifyPaystack: rejecting amount mismatch user=%s ref=%s charged=%d plan=%s expects=%d",
+			user.ID, body.Reference, tx.Amount, tx.Plan.Code, tx.Plan.Amount)
+		http.Error(w, "payment amount does not match the plan", http.StatusBadRequest)
+		return
+	}
+
+	// ── 6. The transaction must belong to the caller ─────────────────────
+	// Without this, any authenticated user could replay someone else's
+	// valid reference.
+	if !strings.EqualFold(
+		strings.TrimSpace(tx.Email),
+		strings.TrimSpace(user.Email),
+	) {
+		log.Printf("VerifyPaystack: REJECTED email mismatch (probable abuse) user=%s ref=%s",
+			user.ID, body.Reference)
+		http.Error(w, "this payment belongs to a different account", http.StatusForbidden)
+		return
+	}
+
+	// ── 7. A reference may not be redeemed by a second account ───────────
+	existing, err := h.Store.GetSubscriptionByProviderSubID(body.Reference)
+	if err != nil {
+		log.Printf("VerifyPaystack: replay lookup failed: %v", err)
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+	if existing != nil && existing.UserID != user.ID {
+		log.Printf("VerifyPaystack: REJECTED replayed reference (probable abuse) ref=%s owner=%s claimant=%s",
+			body.Reference, existing.UserID, user.ID)
+		http.Error(w, "this payment has already been redeemed", http.StatusConflict)
+		return
+	}
+	// Same user re-verifying is idempotent: a double submit or a retried
+	// handlePaystackSuccess must not lock a paying customer out.
+
+	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d is_trial=%v",
+		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount, isTrial)
 
 	now := time.Now().UTC()
-
-	// Detect trial: Paystack charges ₦0 for the first transaction on a plan with a trial
-	isTrial := result.Data.Amount == 0
 
 	// Set subscription status and trial_end based on whether this is a trial
 	subStatus := "active"
 	var trialEnd *time.Time
 	var periodEnd *time.Time
+
+	cycle := 30 * 24 * time.Hour
+	if interval == "year" {
+		cycle = 365 * 24 * time.Hour
+	}
 
 	if isTrial {
 		subStatus = "trialing"
@@ -399,27 +419,17 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		te := now.Add(14 * 24 * time.Hour)
 		trialEnd = &te
 		// Period end is after trial ends + one billing cycle
-		var pe time.Time
-		if body.Interval == "year" {
-			pe = te.Add(365 * 24 * time.Hour)
-		} else {
-			pe = te.Add(30 * 24 * time.Hour)
-		}
+		pe := te.Add(cycle)
 		periodEnd = &pe
 		log.Printf("VerifyPaystack: detected trial — trial_end=%s", te.Format(time.RFC3339))
 	} else {
 		// Paid charge: set period end from now
-		var pe time.Time
-		if body.Interval == "year" {
-			pe = now.Add(365 * 24 * time.Hour)
-		} else {
-			pe = now.Add(30 * 24 * time.Hour)
-		}
+		pe := now.Add(cycle)
 		periodEnd = &pe
-		log.Printf("VerifyPaystack: detected paid charge — amount=%d", result.Data.Amount)
+		log.Printf("VerifyPaystack: detected paid charge — amount=%d", tx.Amount)
 	}
 
-	customerCode := result.Data.Customer.CustomerCode
+	customerCode := tx.CustomerCode
 	if customerCode == "" {
 		customerCode = "paystack_" + body.Reference
 		log.Printf("VerifyPaystack: using fallback customer code for ref=%s", body.Reference)
@@ -435,7 +445,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		CurrentPeriodEnd:   periodEnd,
 		TrialEnd:           trialEnd,
 		Currency:           "ngn",
-		Interval:           body.Interval,
+		Interval:           interval,
 		CancelAtPeriodEnd:  false,
 		CreatedAt:          now,
 	}

@@ -161,26 +161,39 @@ function getPaystackConfig(interval: 'month' | 'year', email: string) {
     // Small delay: gives Paystack time to finish processing
     await new Promise(resolve => setTimeout(resolve, 1500))
 
+    // Verification is what grants the plan — it is not advisory. If it fails
+    // the payment went through but the account was NOT upgraded, and the
+    // caller has to say so. Redirecting to ?upgraded=true regardless would
+    // leave a charged customer on the free plan with no error anywhere.
+    let result
     try {
-    const result = await api.verifyPaystackPayment({ reference, plan: 'pro', interval })
+      result = await api.verifyPaystackPayment({ reference, plan: 'pro', interval })
+    } catch (err) {
+      console.error('Paystack verification failed:', err)
+      trackEvent('checkout_verification_failed', {
+        provider: 'paystack',
+        interval,
+      })
+      await fetchSubscription()
+      throw new Error(
+        `Your payment went through, but we could not activate your subscription. ` +
+        `Nothing further will be charged. Please contact support with reference ${reference}.`,
+      )
+    }
 
-    trackEvent('checkout_completed', {                  
+    trackEvent('checkout_completed', {
       provider:  'paystack',
       interval,
       is_trial:  result.is_trial,
     })
 
     if (result.is_trial) {
-      trackEvent('trial_started', {                     
+      trackEvent('trial_started', {
         provider: 'paystack',
         interval,
       })
     }
-    } catch (err) {
-      console.error('Verify error (non-fatal):', err)
-    }
 
-    // Always refetch: upsert succeeded even if verify had issues
     await fetchSubscription()
     window.location.href = '/?upgraded=true'
   }
