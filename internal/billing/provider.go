@@ -14,12 +14,14 @@ type CheckoutParams struct {
 }
 
 // CheckoutResult: returned to the frontend
+// The json tags are load-bearing: the UI reads redirect_url / access_code
+// (see ui/src/api/client.ts and BillingContext.startCheckout)
 type CheckoutResult struct {
-	// Stripe returns a redirect URL to hosted checkout
+	// Lemonsqueezy returns a hosted checkout URL
 	// Paystack returns an authorization URL
-	RedirectURL string
+	RedirectURL string `json:"redirect_url"`
 	// Paystack inline: access code for inline popup
-	AccessCode string
+	AccessCode string `json:"access_code,omitempty"`
 }
 
 // Provider: interface both Stripe and Paystack implement
