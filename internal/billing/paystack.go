@@ -178,6 +178,10 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			PlanCode         string `json:"plan"`
 			EmailToken       string `json:"email_token"`
 			NextPaymentDate  string `json:"next_payment_date"`
+			// Transaction metadata, where our user_id is passed at checkout.
+			// Paystack returns this as an object, an empty string, or the
+			// integer 0, so it cannot be decoded into a fixed shape.
+			Metadata json.RawMessage `json:"metadata"`
 			// Paystack spells these both ways across payloads.
 			UpdatedAtCamel string `json:"updatedAt"`
 			UpdatedAtSnake string `json:"updated_at"`
@@ -210,7 +214,12 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			Status:         normalisePaystackStatus(sub.Status),
 			Currency:       "ngn",
 			PeriodEnd:      periodEnd,
-			UserID:         sub.Customer.Metadata.UserID,
+			// Transaction metadata first; customer metadata is a different
+			// field and is usually null.
+			UserID: firstNonEmpty(
+				paystackMetadataUserID(sub.Metadata),
+				sub.Customer.Metadata.UserID,
+			),
 			EventAt: firstParsedTime(
 				sub.UpdatedAtCamel, sub.UpdatedAtSnake,
 				sub.CreatedAtCamel, sub.CreatedAtSnake,
@@ -218,6 +227,33 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 		}, nil
 	}
 	return nil, nil
+}
+
+// paystackMetadataUserID extracts user_id from Paystack transaction metadata.
+//
+// Paystack returns metadata as an object when set, but as an empty string or
+// the integer 0 when it is not, so decoding it into a struct fails outright on
+// those transactions. Returns "" for anything that is not an object.
+func paystackMetadataUserID(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var obj struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(obj.UserID)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // firstParsedTime returns the first value that parses as RFC3339, as a Unix

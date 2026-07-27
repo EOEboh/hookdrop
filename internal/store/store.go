@@ -891,7 +891,23 @@ func (s *Store) DeleteOldBillingEvents() (int64, error) {
 // Unlike GetSubscription this returns (nil, nil) when there is no row — the
 // caller needs to tell "not found" apart from "free plan".
 func (s *Store) GetSubscriptionByProviderSubID(providerSubID string) (*models.Subscription, error) {
-	if providerSubID == "" {
+	return s.subscriptionBy("provider_sub_id", providerSubID)
+}
+
+// GetSubscriptionByProviderCustomerID looks a subscription up by the provider's
+// customer ID.
+//
+// This is the reliable key for Paystack: renewals are charged against a stored
+// authorization and do not carry the transaction metadata that held our
+// user_id, but they always identify the customer.
+func (s *Store) GetSubscriptionByProviderCustomerID(customerID string) (*models.Subscription, error) {
+	return s.subscriptionBy("provider_customer_id", customerID)
+}
+
+// subscriptionBy fetches one subscription by an indexed provider column.
+// column is never caller-supplied — it comes from the two wrappers above.
+func (s *Store) subscriptionBy(column, value string) (*models.Subscription, error) {
+	if value == "" {
 		return nil, nil
 	}
 
@@ -902,7 +918,7 @@ func (s *Store) GetSubscriptionByProviderSubID(providerSubID string) (*models.Su
 		       status, current_period_end, trial_end,
 		       cancel_at_period_end, COALESCE(currency,'usd'),
 		       COALESCE(interval,'month'), created_at, updated_at
-		FROM subscriptions WHERE provider_sub_id = ?`, providerSubID,
+		FROM subscriptions WHERE `+column+` = ?`, value,
 	).Scan(
 		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
 		&sub.ProviderCustomerID, &sub.ProviderSubID,

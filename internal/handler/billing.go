@@ -332,19 +332,18 @@ func (h *BillingHandler) processWebhookEvent(
 	// stored rather than dropping the event on the floor — a dropped
 	// cancellation leaves a customer on Pro forever.
 	if userID == "" {
-		existing, err := h.Store.GetSubscriptionByProviderSubID(event.SubscriptionID)
+		existing, via, err := h.resolveWebhookUser(event)
 		if err != nil {
-			return fmt.Errorf("lookup subscription %s: %w", event.SubscriptionID, err)
+			return err
 		}
 		if existing == nil {
 			return fmt.Errorf(
-				"%s webhook %s: custom_data.user_id missing and no subscription row for provider_sub_id=%s",
-				providerName, event.Type, event.SubscriptionID)
+				"%s webhook %s: no user_id in the payload and no subscription row for sub=%s customer=%s",
+				providerName, event.Type, event.SubscriptionID, event.CustomerID)
 		}
 		userID = existing.UserID
-		log.Printf(
-			"WARNING: %s webhook %s had no custom_data.user_id — resolved user=%s via provider_sub_id=%s",
-			providerName, event.Type, userID, event.SubscriptionID)
+		log.Printf("WARNING: %s webhook %s carried no user_id — resolved user=%s via %s",
+			providerName, event.Type, userID, via)
 	}
 
 	var periodEnd *time.Time
@@ -565,6 +564,31 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		"is_trial":  false,
 		"trial_end": nil,
 	})
+}
+
+// resolveWebhookUser finds the local user for an event whose payload carried no
+// user_id, and reports which key resolved it.
+//
+// Lemon Squeezy puts user_id in meta.custom_data on every subscription event,
+// so this is a safety net there. On Paystack it is load-bearing: renewals are
+// charged against a stored authorization and carry none of the transaction
+// metadata from the original checkout, but they always name the customer.
+func (h *BillingHandler) resolveWebhookUser(
+	event *billing.WebhookEvent,
+) (*models.Subscription, string, error) {
+	if sub, err := h.Store.GetSubscriptionByProviderSubID(event.SubscriptionID); err != nil {
+		return nil, "", fmt.Errorf("lookup by provider_sub_id %s: %w", event.SubscriptionID, err)
+	} else if sub != nil {
+		return sub, "provider_sub_id=" + event.SubscriptionID, nil
+	}
+
+	if sub, err := h.Store.GetSubscriptionByProviderCustomerID(event.CustomerID); err != nil {
+		return nil, "", fmt.Errorf("lookup by provider_customer_id %s: %w", event.CustomerID, err)
+	} else if sub != nil {
+		return sub, "provider_customer_id=" + event.CustomerID, nil
+	}
+
+	return nil, "", nil
 }
 
 // paystackCycle is one billing period for an interval. Paystack does not
