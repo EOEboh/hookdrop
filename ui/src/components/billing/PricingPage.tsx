@@ -35,12 +35,20 @@ const PRO_FEATURES = [
   'Signature verification',
   'Request filtering + search',
   'Priority support',
-  '14-day free trial',
 ]
 
+// The free trial is a Lemon Squeezy feature. Paystack has no native trial
+// support, so NGN customers are charged on signup — advertising a trial to
+// them would be promising something we do not deliver.
+function proFeatures(currency: 'ngn' | 'usd'): string[] {
+  return currency === 'ngn'
+    ? PRO_FEATURES
+    : [...PRO_FEATURES, '14-day free trial']
+}
+
 const PRICE_DISPLAY = {
-  month: { amount: '₦3,500', suffix: '/mo after trial' },
-  year:  { amount: '₦33,600', suffix: '/yr after trial' },
+  month: { amount: '₦3,500', suffix: '/mo' },
+  year:  { amount: '₦33,600', suffix: '/yr' },
 } as const
 
 function PaystackButton({
@@ -92,7 +100,7 @@ function PaystackButton({
     >
       {loading
         ? 'Processing…'
-        : `Start free trial: ${display.amount} ${display.suffix}`
+        : `Subscribe — ${display.amount}${display.suffix}`
       }
     </button>
   )
@@ -208,7 +216,7 @@ export function PricingPage() {
             </div>
 
             <div className="space-y-2.5 pt-4 border-t border-border">
-              {PRO_FEATURES.map(f => (
+              {proFeatures(currency).map(f => (
                 <div
                   key={f}
                   className="flex items-center gap-2.5 text-sm text-ink"
@@ -361,11 +369,13 @@ export function PricingPage() {
               </div>
               {prices.total
                 ? <p className="text-muted text-xs mt-1">{prices.total}</p>
-                : <p className="text-indigo-400 text-xs mt-1">14-day free trial</p>
+                : currency !== 'ngn'
+                  ? <p className="text-indigo-400 text-xs mt-1">14-day free trial</p>
+                  : null
               }
             </div>
             <ul className="space-y-2.5">
-              {PRO_FEATURES.map(f => (
+              {proFeatures(currency).map(f => (
                 <li
                   key={f}
                   className="flex items-start gap-2.5 text-sm text-ink"

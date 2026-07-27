@@ -278,8 +278,9 @@ func TestVerifyPaystack_RejectsAmountBelowPlanPrice(t *testing.T) {
 	}
 }
 
-// The trial branch is dormant today but must not be broken by the amount check.
-func TestVerifyPaystack_ZeroAmountTrialStillSucceeds(t *testing.T) {
+// Paystack has no native free trial, so a ₦0 charge against a priced plan is
+// never legitimate — it used to be treated as a trial and granted Pro.
+func TestVerifyPaystack_RejectsZeroAmountCharge(t *testing.T) {
 	h, user := newBillingTestHandler(t,
 		verifyBody("success", "buyer@example.com", testPlanMonthly, 0, monthlyKobo))
 
@@ -287,26 +288,48 @@ func TestVerifyPaystack_ZeroAmountTrialStillSucceeds(t *testing.T) {
 	h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
 		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
 
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Errorf("plan = %q, want free", sub.Plan)
+	}
+}
+
+// A paid Paystack subscription is active immediately, never trialing.
+func TestVerifyPaystack_NeverProducesATrial(t *testing.T) {
+	h, user := newBillingTestHandler(t,
+		verifyBody("success", "buyer@example.com", testPlanMonthly, monthlyKobo, monthlyKobo))
+
+	rec := httptest.NewRecorder()
+	h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
+		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("got %d, want 200 — the amount check rejected a genuine ₦0 trial: %s",
-			rec.Code, rec.Body.String())
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 
 	var resp struct {
-		Status   string `json:"status"`
-		IsTrial  bool   `json:"is_trial"`
-		TrialEnd string `json:"trial_end"`
+		Status   string      `json:"status"`
+		IsTrial  bool        `json:"is_trial"`
+		TrialEnd interface{} `json:"trial_end"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !resp.IsTrial || resp.Status != "trialing" {
-		t.Errorf("is_trial=%t status=%q, want true/trialing", resp.IsTrial, resp.Status)
+	if resp.IsTrial || resp.Status != "active" {
+		t.Errorf("is_trial=%t status=%q, want false/active", resp.IsTrial, resp.Status)
+	}
+	if resp.TrialEnd != nil {
+		t.Errorf("trial_end = %v, want null", resp.TrialEnd)
 	}
 
 	sub, _ := h.Store.GetSubscription(user.ID)
-	if sub.TrialEnd == nil {
-		t.Error("trial_end is nil on a trial subscription")
+	if sub.TrialEnd != nil {
+		t.Errorf("stored trial_end = %v, want nil — Paystack grants no trial", sub.TrialEnd)
+	}
+	if sub.Status != "active" {
+		t.Errorf("stored status = %q, want active", sub.Status)
 	}
 }
 
