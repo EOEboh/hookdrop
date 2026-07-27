@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -97,7 +98,7 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("paystack initialize: %w", err)
 	}
@@ -125,12 +126,15 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 }
 
 func (p *PaystackProvider) CancelSubscription(ctx context.Context, subCode string) error {
+	body, err := json.Marshal(map[string]string{"code": subCode, "token": ""})
+	if err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx,
 		"POST",
-		fmt.Sprintf("https://api.paystack.co/subscription/disable"),
-		strings.NewReader(fmt.Sprintf(
-			`{"code":"%s","token":""}`, subCode,
-		)),
+		p.baseURL()+"/subscription/disable",
+		bytes.NewReader(body),
 	)
 	if err != nil {
 		return err
@@ -138,11 +142,16 @@ func (p *PaystackProvider) CancelSubscription(ctx context.Context, subCode strin
 	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client().Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("paystack disable subscription %d: %s", resp.StatusCode, msg)
+	}
 	return nil
 }
 
@@ -214,6 +223,11 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			Status:         normalisePaystackStatus(sub.Status),
 			Currency:       "ngn",
 			PeriodEnd:      periodEnd,
+			// subscription.not_renew means the customer cancelled but keeps
+			// access until the period ends. Without this the upsert wrote
+			// cancel_at_period_end=false and silently undid the cancellation.
+			CancelAtEnd: event.Event == "subscription.not_renew" ||
+				event.Event == "subscription.disable",
 			// Transaction metadata first; customer metadata is a different
 			// field and is usually null.
 			UserID: firstNonEmpty(
