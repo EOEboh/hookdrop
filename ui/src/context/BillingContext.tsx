@@ -19,6 +19,7 @@ interface BillingContextValue extends BillingState {
   getPaystackConfig: (
     interval: 'month' | 'year',
     email: string,
+    userId: string,
   ) => {
     publicKey: string
     email: string
@@ -143,7 +144,11 @@ const PAYSTACK_PRICES = {
   year:  3360000,  // ₦33,600
 } as const
 
-function getPaystackConfig(interval: 'month' | 'year', email: string) {
+function getPaystackConfig(
+  interval: 'month' | 'year',
+  email: string,
+  userId: string,
+) {
   const isAnnual = interval === 'year'
 
   const planCode = isAnnual
@@ -176,6 +181,12 @@ function getPaystackConfig(interval: 'month' | 'year', email: string) {
     plan:     planCode ?? '',
     currency: 'NGN',
     label:    `hookdrop Pro — ${isAnnual ? 'Annual' : 'Monthly'}`,
+    // Carried onto the transaction so subscription webhooks can identify the
+    // local user. Renewals will not have it — those resolve by customer code.
+    metadata: {
+      user_id: userId,
+      custom_fields: [],
+    },
   }
 }
 
