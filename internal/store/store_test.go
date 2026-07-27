@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -176,5 +177,100 @@ func TestResolveIdentifierForUser(t *testing.T) {
 				t.Fatalf("canonical ID = %q, want %q", gotID, tt.wantID)
 			}
 		})
+	}
+}
+
+func billingEvent(key, objectID string, at time.Time) *models.BillingEvent {
+	return &models.BillingEvent{
+		Provider:  "lemonsqueezy",
+		EventType: "subscription_updated",
+		Payload:   `{"meta":{"event_name":"subscription_updated"}}`,
+		EventKey:  key,
+		ObjectID:  objectID,
+		EventAt:   &at,
+	}
+}
+
+// Retried deliveries are absorbed by the unique index, not by application logic.
+func TestRecordBillingEventDeduplicates(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Now().UTC()
+
+	if err := s.RecordBillingEvent(billingEvent("key-1", "sub-1", now)); err != nil {
+		t.Fatalf("first record: %v", err)
+	}
+
+	err := s.RecordBillingEvent(billingEvent("key-1", "sub-1", now))
+	if !errors.Is(err, ErrDuplicateBillingEvent) {
+		t.Fatalf("second record: err = %v, want ErrDuplicateBillingEvent", err)
+	}
+
+	// A genuinely different event still records.
+	if err := s.RecordBillingEvent(billingEvent("key-2", "sub-1", now)); err != nil {
+		t.Fatalf("distinct event: %v", err)
+	}
+}
+
+func TestLatestProcessedEventAt(t *testing.T) {
+	s := newTestStore(t)
+	older := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	newer := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
+
+	// Unprocessed events must not count: they were never applied.
+	if err := s.RecordBillingEvent(billingEvent("key-unprocessed", "sub-1", newer)); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if _, found, err := s.LatestProcessedEventAt("lemonsqueezy", "sub-1"); err != nil || found {
+		t.Fatalf("found = %t (err %v), want false — nothing is processed yet", found, err)
+	}
+
+	if err := s.RecordBillingEvent(billingEvent("key-old", "sub-1", older)); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if err := s.MarkBillingEventProcessed("key-old", "user-1"); err != nil {
+		t.Fatalf("mark processed: %v", err)
+	}
+
+	got, found, err := s.LatestProcessedEventAt("lemonsqueezy", "sub-1")
+	if err != nil || !found {
+		t.Fatalf("found = %t (err %v), want true", found, err)
+	}
+	if !got.Equal(older) {
+		t.Errorf("latest = %s, want %s", got, older)
+	}
+
+	// A different subscription is scoped separately.
+	if _, found, _ := s.LatestProcessedEventAt("lemonsqueezy", "sub-2"); found {
+		t.Error("sub-2 picked up sub-1's events")
+	}
+}
+
+func TestDeleteOldBillingEvents(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Now().UTC()
+
+	fresh := billingEvent("key-fresh", "sub-1", now)
+	fresh.CreatedAt = now
+	if err := s.RecordBillingEvent(fresh); err != nil {
+		t.Fatalf("record fresh: %v", err)
+	}
+
+	stale := billingEvent("key-stale", "sub-1", now)
+	stale.CreatedAt = now.Add(-BillingEventRetention - time.Hour)
+	if err := s.RecordBillingEvent(stale); err != nil {
+		t.Fatalf("record stale: %v", err)
+	}
+
+	n, err := s.DeleteOldBillingEvents()
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("deleted %d, want 1 — only the out-of-window row", n)
+	}
+
+	// The fresh row survives, so its key still collides.
+	if err := s.RecordBillingEvent(billingEvent("key-fresh", "sub-1", now)); !errors.Is(err, ErrDuplicateBillingEvent) {
+		t.Errorf("fresh event was deleted: re-record err = %v", err)
 	}
 }

@@ -358,6 +358,7 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 		PeriodEnd:      periodEnd,
 		TrialEnd:       trialEnd,
 		CancelAtEnd:    attr.Cancelled,
+		EventAt:        parseLSTime(attr.UpdatedAt),
 	}
 
 	return event, nil

@@ -177,7 +177,12 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			PlanCode         string `json:"plan"`
 			EmailToken       string `json:"email_token"`
 			NextPaymentDate  string `json:"next_payment_date"`
-			Customer         struct {
+			// Paystack spells these both ways across payloads.
+			UpdatedAtCamel string `json:"updatedAt"`
+			UpdatedAtSnake string `json:"updated_at"`
+			CreatedAtCamel string `json:"createdAt"`
+			CreatedAtSnake string `json:"created_at"`
+			Customer       struct {
 				CustomerCode string `json:"customer_code"`
 				Email        string `json:"email"`
 				Metadata     struct {
@@ -205,9 +210,28 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			Currency:       "ngn",
 			PeriodEnd:      periodEnd,
 			UserID:         sub.Customer.Metadata.UserID,
+			EventAt: firstParsedTime(
+				sub.UpdatedAtCamel, sub.UpdatedAtSnake,
+				sub.CreatedAtCamel, sub.CreatedAtSnake,
+			),
 		}, nil
 	}
 	return nil, nil
+}
+
+// firstParsedTime returns the first value that parses as RFC3339, as a Unix
+// timestamp, or 0 if none do. Paystack spells its timestamp fields
+// inconsistently across payloads, so several candidates are tried in order.
+func firstParsedTime(candidates ...string) int64 {
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, c); err == nil {
+			return t.Unix()
+		}
+	}
+	return 0
 }
 
 func normalisePaystackEvent(e string) string {

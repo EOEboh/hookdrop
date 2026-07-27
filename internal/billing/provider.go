@@ -46,6 +46,9 @@ type WebhookEvent struct {
 	PeriodEnd      int64 // Unix timestamp
 	TrialEnd       int64
 	CancelAtEnd    bool
+	// EventAt is the provider's own timestamp for this event, used to reject
+	// deliveries that arrive out of order. Zero when the payload carries none.
+	EventAt int64
 }
 
 // Paystack-supported countries

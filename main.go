@@ -100,6 +100,7 @@ func main() {
 
 	mgr := session.NewManager(st)
 	mgr.StartCleanup()
+	startBillingEventCleanup(st)
 
 	// ── Billing providers
 	lemonSqueezyProvider := billing.NewLemonSqueezyProvider(
@@ -211,6 +212,23 @@ func main() {
 	if err := http.ListenAndServe(":"+port, middleware.CORS(mux, allowedOrigin)); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// startBillingEventCleanup prunes the webhook audit trail on the same cadence
+// as session cleanup. Without it billing_events grows without bound.
+func startBillingEventCleanup(st *store.Store) {
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			n, err := st.DeleteOldBillingEvents()
+			if err != nil {
+				log.Printf("billing event cleanup error: %v", err)
+			} else if n > 0 {
+				log.Printf("pruned %d billing events older than %s", n, store.BillingEventRetention)
+			}
+		}
+	}()
 }
 
 // warnIfUnset logs any empty config values at boot, so a half-configured
