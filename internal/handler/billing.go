@@ -465,12 +465,11 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 			body.Interval, tx.Plan.Code, interval, interval)
 	}
 
-	// ── 5. Amount must match the plan (or be a zero-charge trial) ────────
-	isTrial := tx.Amount == 0
+	// ── 5. Amount must match the plan ────────────────────────────────────
+	//
+	// There is no zero-amount exemption: Paystack has no native free trial,
+	// so a ₦0 charge against a priced plan is never legitimate here.
 	switch {
-	case isTrial:
-		// Paystack charges ₦0 for the first transaction on a plan with a
-		// trial. Explicitly allowed.
 	case !tx.Plan.AmountKnown:
 		// Paystack returned a bare plan code with no plan object. The plan
 		// code check above already carries the weight here — attaching our
@@ -514,36 +513,17 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// Same user re-verifying is idempotent: a double submit or a retried
 	// handlePaystackSuccess must not lock a paying customer out.
 
-	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d is_trial=%v",
-		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount, isTrial)
+	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d",
+		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount)
 
 	now := time.Now().UTC()
 
-	// Set subscription status and trial_end based on whether this is a trial
+	// Paystack has no native free trial, so the customer has just been
+	// charged and is active from now. trial_end stays nil; only the Lemon
+	// Squeezy path produces trialing subscriptions.
 	subStatus := "active"
-	var trialEnd *time.Time
-	var periodEnd *time.Time
-
-	cycle := 30 * 24 * time.Hour
-	if interval == "year" {
-		cycle = 365 * 24 * time.Hour
-	}
-
-	if isTrial {
-		subStatus = "trialing"
-		// Trial is 14 days: set trial_end
-		te := now.Add(14 * 24 * time.Hour)
-		trialEnd = &te
-		// Period end is after trial ends + one billing cycle
-		pe := te.Add(cycle)
-		periodEnd = &pe
-		log.Printf("VerifyPaystack: detected trial — trial_end=%s", te.Format(time.RFC3339))
-	} else {
-		// Paid charge: set period end from now
-		pe := now.Add(cycle)
-		periodEnd = &pe
-		log.Printf("VerifyPaystack: detected paid charge — amount=%d", tx.Amount)
-	}
+	pe := now.Add(paystackCycle(interval))
+	periodEnd := &pe
 
 	customerCode := tx.CustomerCode
 	if customerCode == "" {
@@ -559,7 +539,6 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		ProviderSubID:      body.Reference,
 		Status:             subStatus,
 		CurrentPeriodEnd:   periodEnd,
-		TrialEnd:           trialEnd,
 		Currency:           "ngn",
 		Interval:           interval,
 		CancelAtPeriodEnd:  false,
@@ -580,11 +559,22 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"plan":      "pro",
-		"status":    subStatus,
-		"is_trial":  isTrial,
-		"trial_end": trialEnd,
+		"plan":   "pro",
+		"status": subStatus,
+		// Retained for the client contract; Paystack never yields a trial.
+		"is_trial":  false,
+		"trial_end": nil,
 	})
+}
+
+// paystackCycle is one billing period for an interval. Paystack does not
+// report the next payment date on the verify response, so the period end is
+// derived; renewals correct it from the charge.success webhook.
+func paystackCycle(interval string) time.Duration {
+	if interval == "year" {
+		return 365 * 24 * time.Hour
+	}
+	return 30 * 24 * time.Hour
 }
 
 // POST /billing/cancel

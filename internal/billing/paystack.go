@@ -71,9 +71,11 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 		planCode = p.Plans.ProAnnual
 	}
 
-	// Trial via Paystack: start_date 14 days from now
-	startDate := time.Now().Add(14 * 24 * time.Hour).Format("2006-01-02")
-
+	// No start_date. Paystack has no native free trial: passing a plan to
+	// transaction/initialize overrides the amount and charges the plan price
+	// immediately, so a future start_date only shifts the *next* debit while
+	// the customer is billed today. Sending it implied a trial that never
+	// existed.
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"email":        params.Email,
 		"plan":         planCode,
@@ -82,12 +84,11 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 			"user_id":    params.UserID,
 			"cancel_url": params.CancelURL,
 		},
-		"start_date": startDate,
 	})
 
 	req, err := http.NewRequestWithContext(ctx,
 		"POST",
-		"https://api.paystack.co/transaction/initialize",
+		p.baseURL()+"/transaction/initialize",
 		bytes.NewBuffer(reqBody),
 	)
 	if err != nil {
