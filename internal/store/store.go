@@ -727,6 +727,41 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 	return sub, nil
 }
 
+// GetSubscriptionByProviderSubID looks a subscription up by the provider's own
+// subscription ID. Used to recover the local user when a webhook arrives
+// without custom_data.user_id.
+//
+// Unlike GetSubscription this returns (nil, nil) when there is no row — the
+// caller needs to tell "not found" apart from "free plan".
+func (s *Store) GetSubscriptionByProviderSubID(providerSubID string) (*models.Subscription, error) {
+	if providerSubID == "" {
+		return nil, nil
+	}
+
+	sub := &models.Subscription{}
+	err := s.db.QueryRow(`
+		SELECT id, user_id, plan, COALESCE(provider,''),
+		       COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
+		       status, current_period_end, trial_end,
+		       cancel_at_period_end, COALESCE(currency,'usd'),
+		       COALESCE(interval,'month'), created_at, updated_at
+		FROM subscriptions WHERE provider_sub_id = ?`, providerSubID,
+	).Scan(
+		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
+		&sub.ProviderCustomerID, &sub.ProviderSubID,
+		&sub.Status, &sub.CurrentPeriodEnd, &sub.TrialEnd,
+		&sub.CancelAtPeriodEnd, &sub.Currency, &sub.Interval,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
 func (s *Store) UpsertSubscription(sub *models.Subscription) error {
 	if sub.ID == "" {
 		sub.ID = uuid.NewString()

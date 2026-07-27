@@ -8,12 +8,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
 
 // Variant IDs from your Lemonsqueezy dashboard
 // Products → your product → Variants → copy the numeric ID
+// Test mode variants have DIFFERENT IDs to live mode variants.
 type LemonSqueezyVariants struct {
 	ProMonthly string // e.g. "123456"
 	ProAnnual  string // e.g. "123457"
@@ -24,17 +26,25 @@ type LemonSqueezyProvider struct {
 	WebhookKey string
 	StoreID    string
 	Variants   LemonSqueezyVariants
+	// TestMode marks created checkouts as test mode. A test-mode API key only
+	// ever sees test-mode data, so this must line up with the key in use.
+	TestMode bool
+
+	http *http.Client
 }
 
 func NewLemonSqueezyProvider(
 	apiKey, webhookKey, storeID string,
 	variants LemonSqueezyVariants,
+	testMode bool,
 ) *LemonSqueezyProvider {
 	return &LemonSqueezyProvider{
 		APIKey:     apiKey,
 		WebhookKey: webhookKey,
 		StoreID:    storeID,
 		Variants:   variants,
+		TestMode:   testMode,
+		http:       &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -71,16 +81,19 @@ func (p *LemonSqueezyProvider) doRequest(
 	req.Header.Set("Content-Type", "application/vnd.api+json")
 	req.Header.Set("Accept", "application/vnd.api+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("lemonsqueezy request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		var errBody map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&errBody)
-		return fmt.Errorf("lemonsqueezy API %d: %v", resp.StatusCode, errBody)
+		// Return the raw body: Lemonsqueezy validation errors name the exact
+		// offending field, which is the only useful thing when a payload is
+		// rejected. Decoding it into a map loses that.
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		return fmt.Errorf("lemonsqueezy API %s %s: %d: %s",
+			method, path, resp.StatusCode, string(errBody))
 	}
 
 	if out != nil {
@@ -97,22 +110,27 @@ func (p *LemonSqueezyProvider) CreateCheckout(
 	if params.Interval == "year" {
 		variantID = p.Variants.ProAnnual
 	}
+	if variantID == "" {
+		return nil, fmt.Errorf("no lemonsqueezy variant configured for interval %q", params.Interval)
+	}
 
-	// Build the checkout payload
-	// Lemonsqueezy uses JSON:API format
+	// Lemonsqueezy uses JSON:API format.
+	//
+	// store_id and variant_id are READ-ONLY response attributes — the only
+	// attributes accepted on create are custom_price, product_options,
+	// checkout_options, checkout_data, preview, test_mode and expires_at.
+	// The store and variant are addressed through relationships.
 	payload := map[string]interface{}{
 		"data": map[string]interface{}{
 			"type": "checkouts",
 			"attributes": map[string]interface{}{
-				"store_id":   p.StoreID,
-				"variant_id": variantID,
-
-				// Pre-fill customer email
 				"checkout_data": map[string]interface{}{
+					// Pre-fill customer email
 					"email": params.Email,
 					"custom": map[string]interface{}{
-						// Pass user ID through custom data
-						// Available in webhook as custom_data.user_id
+						// Pass user ID through custom data. Comes back on
+						// Order / Subscription webhooks as
+						// meta.custom_data.user_id (as a string).
 						"user_id": params.UserID,
 					},
 				},
@@ -123,15 +141,18 @@ func (p *LemonSqueezyProvider) CreateCheckout(
 					"receipt_link_url": params.SuccessURL,
 				},
 
-				// 14-day free trial
-				// Lemonsqueezy trial is set on the variant in the dashboard
-				// but can be overridden here per checkout
+				// The free trial is configured on the variant in the
+				// Lemonsqueezy dashboard — there is no per-checkout trial
+				// override. checkout_options.skip_trial would REMOVE it, so
+				// it is deliberately not set here.
 				"checkout_options": map[string]interface{}{
 					"embed":        false,
 					"media":        false,
 					"logo":         true,
 					"button_color": "#10b981",
 				},
+
+				"test_mode": p.TestMode,
 
 				"expires_at": time.Now().UTC().
 					Add(24 * time.Hour).
@@ -179,7 +200,11 @@ func (p *LemonSqueezyProvider) CancelSubscription(
 	ctx context.Context,
 	subID string,
 ) error {
-	// DELETE /subscriptions/{id} cancels at period end
+	if subID == "" {
+		return fmt.Errorf("lemonsqueezy: empty subscription id")
+	}
+	// DELETE /subscriptions/{id} cancels at period end: the subscription moves
+	// to status "cancelled" with ends_at set, and expires from there.
 	return p.doRequest(ctx, "DELETE", "/subscriptions/"+subID, nil, nil)
 }
 
@@ -187,8 +212,15 @@ func (p *LemonSqueezyProvider) GetPortalURL(
 	ctx context.Context,
 	customerID, returnURL string,
 ) (string, error) {
-	// Lemonsqueezy customer portal
-	// customerID here is the Lemonsqueezy customer ID (numeric string)
+	if customerID == "" {
+		return "", fmt.Errorf("lemonsqueezy: no customer id stored for this subscription")
+	}
+
+	// customerID here is the Lemonsqueezy customer ID (numeric string), taken
+	// from subscription webhook attributes.customer_id.
+	//
+	// The returned portal URL is pre-signed and expires 24h after it is
+	// issued, so it is fetched per request and must never be cached.
 	var result struct {
 		Data struct {
 			Attributes struct {
@@ -211,10 +243,29 @@ func (p *LemonSqueezyProvider) GetPortalURL(
 
 	url := result.Data.Attributes.URLs.CustomerPortal
 	if url == "" {
-		// Fallback to billing settings page in the app
-		return returnURL + "/settings/billing", nil
+		// Do not silently bounce the user back to the page they came from —
+		// that hides a real failure behind a no-op redirect.
+		return "", fmt.Errorf(
+			"lemonsqueezy customer %s returned no customer_portal URL", customerID)
 	}
 	return url, nil
+}
+
+// lsSubscriptionEvents are the only events we act on.
+//
+// Every other Lemonsqueezy event carries a DIFFERENT object shape:
+// order_created sends an Order (no top-level variant_id, status "paid"),
+// subscription_payment_* send a Subscription invoice. Parsing either as a
+// subscription writes a garbage row — plan "free", status "paid" and an order
+// ID in provider_sub_id — over a paying customer.
+var lsSubscriptionEvents = map[string]bool{
+	"subscription_created":   true,
+	"subscription_updated":   true,
+	"subscription_cancelled": true,
+	"subscription_resumed":   true,
+	"subscription_expired":   true,
+	"subscription_paused":    true,
+	"subscription_unpaused":  true,
 }
 
 // HandleWebhook verifies and parses incoming Lemonsqueezy webhook events
@@ -222,7 +273,16 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 	payload []byte,
 	signature string,
 ) (*WebhookEvent, error) {
-	// Verify HMAC-SHA256 signature
+	// An empty signing secret still produces a valid HMAC, which would let
+	// anyone forge a webhook. Refuse rather than verify vacuously.
+	if p.WebhookKey == "" {
+		return nil, fmt.Errorf("lemonsqueezy webhook secret not configured")
+	}
+	if signature == "" {
+		return nil, fmt.Errorf("lemonsqueezy webhook missing X-Signature header")
+	}
+
+	// Verify HMAC-SHA256 hex digest of the raw payload against X-Signature
 	mac := hmac.New(sha256.New, []byte(p.WebhookKey))
 	mac.Write(payload)
 	expected := hex.EncodeToString(mac.Sum(nil))
@@ -231,10 +291,15 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 		return nil, fmt.Errorf("lemonsqueezy webhook signature invalid")
 	}
 
-	// Parse the event envelope
+	// Parse the event envelope.
+	//
+	// Note there is deliberately no first_subscription_item here: it is null
+	// while the subscription is on trial, and it carries no interval field —
+	// the interval is derived from variant_id instead.
 	var envelope struct {
 		Meta struct {
 			EventName  string `json:"event_name"`
+			TestMode   bool   `json:"test_mode"`
 			CustomData struct {
 				UserID string `json:"user_id"`
 			} `json:"custom_data"`
@@ -242,26 +307,19 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 		Data struct {
 			ID         string `json:"id"`
 			Attributes struct {
-				StoreID               int         `json:"store_id"`
-				CustomerID            int         `json:"customer_id"`
-				OrderID               int         `json:"order_id"`
-				ProductID             int         `json:"product_id"`
-				VariantID             int         `json:"variant_id"`
-				Status                string      `json:"status"`
-				Cancelled             bool        `json:"cancelled"`
-				Pause                 interface{} `json:"pause"`
-				BillingAnchor         int         `json:"billing_anchor"`
-				RenewsAt              string      `json:"renews_at"`
-				EndsAt                string      `json:"ends_at"`
-				CreatedAt             string      `json:"created_at"`
-				UpdatedAt             string      `json:"updated_at"`
-				FirstSubscriptionItem struct {
-					SubscriptionID int    `json:"subscription_id"`
-					PriceID        int    `json:"price_id"`
-					Quantity       int    `json:"quantity"`
-					Interval       string `json:"interval"`
-					IntervalCount  int    `json:"interval_count"`
-				} `json:"first_subscription_item"`
+				StoreID       int    `json:"store_id"`
+				CustomerID    int    `json:"customer_id"`
+				OrderID       int    `json:"order_id"`
+				ProductID     int    `json:"product_id"`
+				VariantID     int    `json:"variant_id"`
+				Status        string `json:"status"`
+				Cancelled     bool   `json:"cancelled"`
+				BillingAnchor int    `json:"billing_anchor"`
+				TrialEndsAt   string `json:"trial_ends_at"`
+				RenewsAt      string `json:"renews_at"`
+				EndsAt        string `json:"ends_at"`
+				CreatedAt     string `json:"created_at"`
+				UpdatedAt     string `json:"updated_at"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
@@ -270,27 +328,23 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 		return nil, fmt.Errorf("parse webhook payload: %w", err)
 	}
 
+	if !lsSubscriptionEvents[envelope.Meta.EventName] {
+		// Not a subscription event — nothing to persist.
+		return nil, nil
+	}
+
 	attr := envelope.Data.Attributes
 
-	// Parse period end time
-	periodEnd := int64(0)
-	if attr.RenewsAt != "" {
-		if t, err := time.Parse(time.RFC3339, attr.RenewsAt); err == nil {
-			periodEnd = t.Unix()
-		}
-	}
-	// If cancelled, use ends_at as the period end
-	if attr.EndsAt != "" && attr.Cancelled {
-		if t, err := time.Parse(time.RFC3339, attr.EndsAt); err == nil {
-			periodEnd = t.Unix()
-		}
+	// renews_at is the end of the current billing cycle. On a trialing
+	// subscription it is the date of the first real charge.
+	periodEnd := parseLSTime(attr.RenewsAt)
+	// ends_at is only populated for cancelled/expired subscriptions and is the
+	// date access actually stops, so it wins when present.
+	if end := parseLSTime(attr.EndsAt); end > 0 {
+		periodEnd = end
 	}
 
-	// Determine interval from subscription item
-	interval := "month"
-	if attr.FirstSubscriptionItem.Interval == "year" {
-		interval = "year"
-	}
+	trialEnd := parseLSTime(attr.TrialEndsAt)
 
 	event := &WebhookEvent{
 		Type:           normaliseLSEvent(envelope.Meta.EventName),
@@ -298,52 +352,79 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 		CustomerID:     fmt.Sprintf("%d", attr.CustomerID),
 		SubscriptionID: envelope.Data.ID,
 		Plan:           p.planFromVariant(attr.VariantID),
-		Status:         normaliseLSStatus(attr.Status, attr.Cancelled),
+		Status:         normaliseLSStatus(attr.Status, attr.Cancelled, trialEnd),
 		Currency:       "usd",
-		Interval:       interval,
+		Interval:       p.intervalFromVariant(attr.VariantID),
 		PeriodEnd:      periodEnd,
+		TrialEnd:       trialEnd,
 		CancelAtEnd:    attr.Cancelled,
 	}
 
 	return event, nil
 }
 
+// parseLSTime parses a Lemonsqueezy ISO 8601 timestamp
+// (e.g. "2021-08-11T13:47:28.000000Z"). Returns 0 for empty/null/unparseable.
+func parseLSTime(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
+}
+
 func normaliseLSEvent(e string) string {
 	switch e {
 	case "subscription_created":
 		return "subscription.created"
-	case "subscription_updated":
-		return "subscription.updated"
-	case "subscription_cancelled",
-		"subscription_expired":
+	case "subscription_expired":
+		// The grace period has run out (or dunning finished). This is the
+		// point access actually ends.
 		return "subscription.canceled"
-	case "subscription_resumed":
-		return "subscription.updated"
-	case "subscription_paused":
-		return "subscription.updated"
 	default:
-		return e
+		// subscription_updated / _cancelled / _resumed / _paused / _unpaused.
+		//
+		// subscription_cancelled deliberately does NOT map to
+		// subscription.canceled: Lemonsqueezy fires it the moment the customer
+		// cancels, but they keep the access they paid for until ends_at.
+		// Downgrading here would cut off paid access early. cancel_at_period_end
+		// and current_period_end carry the cancellation; subscription_expired
+		// does the downgrade.
+		return "subscription.updated"
 	}
 }
 
-func normaliseLSStatus(status string, cancelled bool) string {
-	if cancelled {
-		return "active" // still active until period ends
-	}
+func normaliseLSStatus(status string, cancelled bool, trialEnd int64) string {
 	switch status {
-	case "active":
-		return "active"
-	case "on_trial":
-		return "trialing"
+	case "expired":
+		return "canceled"
 	case "past_due", "unpaid":
 		return "past_due"
-	case "cancelled", "expired":
-		return "canceled"
 	case "paused":
 		return "past_due" // treat paused as at-risk
-	default:
-		return status
+	case "on_trial":
+		return "trialing"
+	case "active":
+		return "active"
+	case "cancelled":
+		// Cancelled but not yet expired: still a valid grace period, access
+		// runs until ends_at. Keep reporting the trial if it is still running
+		// so the UI keeps rendering the trial card.
+		if trialEnd > 0 && time.Now().Unix() < trialEnd {
+			return "trialing"
+		}
+		return "active"
 	}
+
+	// Unknown status. `cancelled` is checked last so it can never mask a
+	// terminal status above (it stays true after a subscription expires).
+	if cancelled {
+		return "active"
+	}
+	return status
 }
 
 func (p *LemonSqueezyProvider) planFromVariant(variantID int) string {
@@ -352,4 +433,16 @@ func (p *LemonSqueezyProvider) planFromVariant(variantID int) string {
 		return "pro"
 	}
 	return "free"
+}
+
+// intervalFromVariant derives the billing interval from the variant.
+//
+// The webhook payload has no usable interval field:
+// first_subscription_item carries only id / subscription_id / price_id /
+// quantity / timestamps, and is null entirely during a free trial.
+func (p *LemonSqueezyProvider) intervalFromVariant(variantID int) string {
+	if fmt.Sprintf("%d", variantID) == p.Variants.ProAnnual {
+		return "year"
+	}
+	return "month"
 }

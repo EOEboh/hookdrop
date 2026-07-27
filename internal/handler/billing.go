@@ -149,8 +149,12 @@ func (h *BillingHandler) GetPortal(w http.ResponseWriter, r *http.Request) {
 
 // POST /billing/webhook/lemonsqueezy
 func (h *BillingHandler) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
-	payload, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	// MaxBytesReader errors on an oversized body rather than silently
+	// truncating it — a truncated payload would fail signature verification
+	// and be reported as a forgery.
+	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
+		log.Printf("lemonsqueezy webhook: read error: %v", err)
 		http.Error(w, "read error", http.StatusBadRequest)
 		return
 	}
@@ -165,7 +169,11 @@ func (h *BillingHandler) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Requ
 
 	if event != nil {
 		if err := h.processWebhookEvent(event, "lemonsqueezy"); err != nil {
+			// Return non-2xx so Lemonsqueezy retries and the failure is visible
+			// in the dashboard's webhook log, not just ours.
 			log.Printf("process lemonsqueezy event error: %v", err)
+			http.Error(w, "processing failed", http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -206,9 +214,26 @@ func (h *BillingHandler) processWebhookEvent(
 	event *billing.WebhookEvent,
 	providerName string,
 ) error {
-	if event.UserID == "" {
-		log.Printf("webhook event missing user_id — skipping")
-		return nil
+	userID := event.UserID
+
+	// custom_data.user_id should always be present on subscription events, but
+	// if it ever isn't, recover the user from the subscription ID we already
+	// stored rather than dropping the event on the floor — a dropped
+	// cancellation leaves a customer on Pro forever.
+	if userID == "" {
+		existing, err := h.Store.GetSubscriptionByProviderSubID(event.SubscriptionID)
+		if err != nil {
+			return fmt.Errorf("lookup subscription %s: %w", event.SubscriptionID, err)
+		}
+		if existing == nil {
+			return fmt.Errorf(
+				"%s webhook %s: custom_data.user_id missing and no subscription row for provider_sub_id=%s",
+				providerName, event.Type, event.SubscriptionID)
+		}
+		userID = existing.UserID
+		log.Printf(
+			"WARNING: %s webhook %s had no custom_data.user_id — resolved user=%s via provider_sub_id=%s",
+			providerName, event.Type, userID, event.SubscriptionID)
 	}
 
 	var periodEnd *time.Time
@@ -217,27 +242,44 @@ func (h *BillingHandler) processWebhookEvent(
 		periodEnd = &t
 	}
 
+	var trialEnd *time.Time
+	if event.TrialEnd > 0 {
+		t := time.Unix(event.TrialEnd, 0)
+		trialEnd = &t
+	} else {
+		// The upsert overwrites trial_end unconditionally, so an event that
+		// carries no trial date would wipe one we already know about (Paystack
+		// records its trial via VerifyPaystack, not via the webhook). Carry the
+		// stored value forward instead of nulling it.
+		existing, err := h.Store.GetSubscription(userID)
+		if err != nil {
+			return fmt.Errorf("read existing subscription for %s: %w", userID, err)
+		}
+		trialEnd = existing.TrialEnd
+	}
+
 	plan := event.Plan
 	if event.Type == "subscription.canceled" {
 		plan = "free"
 	}
 
 	sub := &models.Subscription{
-		UserID:             event.UserID,
+		UserID:             userID,
 		Plan:               plan,
 		Provider:           providerName,
 		ProviderCustomerID: event.CustomerID,
 		ProviderSubID:      event.SubscriptionID,
 		Status:             event.Status,
 		CurrentPeriodEnd:   periodEnd,
+		TrialEnd:           trialEnd,
 		Currency:           event.Currency,
 		Interval:           event.Interval,
 		CancelAtPeriodEnd:  event.CancelAtEnd,
 		CreatedAt:          time.Now().UTC(),
 	}
 
-	log.Printf("processWebhookEvent: user=%s plan=%s provider=%s status=%s",
-		sub.UserID, sub.Plan, sub.Provider, sub.Status)
+	log.Printf("processWebhookEvent: user=%s plan=%s provider=%s status=%s interval=%s trial_end=%v cancel_at_end=%t",
+		sub.UserID, sub.Plan, sub.Provider, sub.Status, sub.Interval, sub.TrialEnd, sub.CancelAtPeriodEnd)
 
 	return h.Store.UpsertSubscription(sub)
 }
@@ -474,14 +516,22 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	} else {
-		// LemonSqueezy — use stored sub ID directly
+		// LemonSqueezy — use stored sub ID directly.
+		//
+		// This one is NOT best-effort: if the DELETE fails, Lemonsqueezy keeps
+		// billing the customer. Marking them cancelled locally would show them
+		// "cancelled" in the UI while their card is still being charged, so
+		// fail loudly and leave the row untouched for a retry.
 		if err := h.LemonSqueezy.CancelSubscription(r.Context(), sub.ProviderSubID); err != nil {
-			log.Printf("CancelSubscription: LemonSqueezy error (non-fatal): %v", err)
+			log.Printf("CancelSubscription: LemonSqueezy cancel failed for user=%s sub=%s: %v",
+				user.ID, sub.ProviderSubID, err)
+			http.Error(w, "could not cancel subscription with the payment provider", http.StatusBadGateway)
+			return
 		}
 	}
 
-	// Always mark cancel_at_period_end regardless of provider API result
-	// The user expressed intent to cancel — honour it in our system
+	// Mark cancel_at_period_end. For Paystack this is intent-only (the API call
+	// above is best-effort); for LemonSqueezy the provider has already confirmed.
 	sub.CancelAtPeriodEnd = true
 	sub.UpdatedAt = time.Now().UTC()
 

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,20 @@ func main() {
 	lsStoreID := getEnv("LEMONSQUEEZY_STORE_ID", "")
 	lsVariantMonthly := getEnv("LEMONSQUEEZY_VARIANT_PRO_MONTHLY", "")
 	lsVariantAnnual := getEnv("LEMONSQUEEZY_VARIANT_PRO_ANNUAL", "")
+	// Test mode must match the API key in use: a test-mode key only ever sees
+	// test-mode data, and test-mode variants have different IDs to live ones.
+	lsTestMode := getEnv("LEMONSQUEEZY_TEST_MODE", "false") == "true"
+
+	warnIfUnset(map[string]string{
+		"LEMONSQUEEZY_API_KEY":             lsAPIKey,
+		"LEMONSQUEEZY_WEBHOOK_SECRET":      lsWebhookSecret,
+		"LEMONSQUEEZY_STORE_ID":            lsStoreID,
+		"LEMONSQUEEZY_VARIANT_PRO_MONTHLY": lsVariantMonthly,
+		"LEMONSQUEEZY_VARIANT_PRO_ANNUAL":  lsVariantAnnual,
+	})
+	if lsTestMode {
+		log.Printf("billing: LEMONSQUEEZY_TEST_MODE=true — checkouts are test mode, no real charges")
+	}
 
 	// ── Paystack config (African users)
 	paystackSecretKey := getEnv("PAYSTACK_SECRET_KEY", "")
@@ -95,6 +110,7 @@ func main() {
 			ProMonthly: lsVariantMonthly,
 			ProAnnual:  lsVariantAnnual,
 		},
+		lsTestMode,
 	)
 
 	paystackProvider := billing.NewPaystackProvider(
@@ -194,6 +210,22 @@ func main() {
 	log.Printf("hookdrop listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, middleware.CORS(mux, allowedOrigin)); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// warnIfUnset logs any empty config values at boot, so a half-configured
+// deploy shows up in the startup log instead of at the first live webhook.
+func warnIfUnset(values map[string]string) {
+	var missing []string
+	for k, v := range values {
+		if v == "" {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		log.Printf("WARNING: unset config, billing will not work: %s",
+			strings.Join(missing, ", "))
 	}
 }
 
