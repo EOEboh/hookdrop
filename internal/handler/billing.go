@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -644,21 +643,23 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 	// Attempt to find the real subscription code via Paystack API.
 	// If it fails, we still honour the cancellation intent in our DB.
 	if sub.Provider == "paystack" {
-		ps, ok := h.Paystack.(*billing.PaystackProvider)
-		if ok {
-			subCode := h.resolvePaystackSubscriptionCode(
-				r.Context(), ps, sub.ProviderCustomerID,
-			)
-			if subCode != "" {
-				log.Printf("CancelSubscription: resolved subscription code %s for customer %s",
-					subCode, sub.ProviderCustomerID)
-				// Attempt Paystack API cancellation — non-fatal if it fails
-				if err := h.Paystack.CancelSubscription(r.Context(), subCode); err != nil {
-					log.Printf("CancelSubscription: Paystack API error (non-fatal): %v", err)
-				}
-			} else {
-				log.Printf("CancelSubscription: could not resolve subscription code — marking cancelled in DB only")
+		// provider_sub_id holds a real SUB_ code once subscription.create has
+		// been applied. Rows created before that fix hold the transaction
+		// reference instead, which Paystack cannot cancel.
+		if strings.HasPrefix(sub.ProviderSubID, "SUB_") {
+			if err := h.Paystack.CancelSubscription(r.Context(), sub.ProviderSubID); err != nil {
+				log.Printf("CancelSubscription: Paystack cancel failed for user=%s sub=%s: %v",
+					user.ID, sub.ProviderSubID, err)
+				http.Error(w, "could not cancel subscription with the payment provider",
+					http.StatusBadGateway)
+				return
 			}
+			log.Printf("CancelSubscription: Paystack subscription %s disabled", sub.ProviderSubID)
+		} else {
+			// There is nothing callable. Honour the intent locally, but say
+			// plainly that the provider was not told and is still billing.
+			log.Printf("WARNING: CancelSubscription: user=%s has no Paystack subscription code (provider_sub_id=%q) — cancelled locally only; Paystack was NOT notified and will keep billing",
+				user.ID, sub.ProviderSubID)
 		}
 	} else {
 		// LemonSqueezy — use stored sub ID directly.
@@ -695,50 +696,4 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 		"cancel_at_period_end": true,
 		"access_until":         sub.CurrentPeriodEnd,
 	})
-}
-
-// resolvePaystackSubscriptionCode looks up the active subscription code
-// for a customer because ProviderSubID may be a transaction reference.
-func (h *BillingHandler) resolvePaystackSubscriptionCode(
-	ctx context.Context,
-	ps *billing.PaystackProvider,
-	customerCode string,
-) string {
-	if customerCode == "" || strings.HasPrefix(customerCode, "paystack_") {
-		return "" // fallback customer code — can't look up
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		"https://api.paystack.co/subscription?customer="+customerCode+"&status=active",
-		nil,
-	)
-	if err != nil {
-		return ""
-	}
-	req.Header.Set("Authorization", "Bearer "+ps.SecretKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Status bool `json:"status"`
-		Data   []struct {
-			SubscriptionCode string `json:"subscription_code"`
-			Status           string `json:"status"`
-		} `json:"data"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return ""
-	}
-
-	for _, s := range result.Data {
-		if s.Status == "active" && s.SubscriptionCode != "" {
-			return s.SubscriptionCode
-		}
-	}
-	return ""
 }
