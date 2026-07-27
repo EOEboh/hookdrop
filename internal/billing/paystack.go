@@ -125,8 +125,57 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 	}, nil
 }
 
+// subscriptionEmailToken fetches the email_token Paystack requires to disable
+// a subscription. It is only present on the subscription object, so it has to
+// be read at cancel time.
+func (p *PaystackProvider) subscriptionEmailToken(ctx context.Context, subCode string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		p.baseURL()+"/subscription/"+url.PathEscape(subCode), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
+
+	resp, err := p.client().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Status bool `json:"status"`
+		Data   struct {
+			EmailToken string `json:"email_token"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if !out.Status || out.Data.EmailToken == "" {
+		return "", fmt.Errorf("paystack: no email_token for %s", subCode)
+	}
+	return out.Data.EmailToken, nil
+}
+
 func (p *PaystackProvider) CancelSubscription(ctx context.Context, subCode string) error {
-	body, err := json.Marshal(map[string]string{"code": subCode, "token": ""})
+	if subCode == "" {
+		return fmt.Errorf("paystack: empty subscription code")
+	}
+	// Disabling needs a subscription code. A transaction reference cannot be
+	// cancelled, and pretending otherwise reports success while the customer
+	// keeps being billed.
+	if !strings.HasPrefix(subCode, "SUB_") {
+		return fmt.Errorf("paystack: %q is a transaction reference, not a subscription code", subCode)
+	}
+
+	// /subscription/disable rejects an empty token with
+	// `"token" is not allowed to be empty`, so this is required, not optional.
+	token, err := p.subscriptionEmailToken(ctx, subCode)
+	if err != nil {
+		return err
+	}
+
+	body, err := json.Marshal(map[string]string{"code": subCode, "token": token})
 	if err != nil {
 		return err
 	}
@@ -148,9 +197,18 @@ func (p *PaystackProvider) CancelSubscription(ctx context.Context, subCode strin
 	}
 	defer resp.Body.Close()
 
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 	if resp.StatusCode >= 400 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return fmt.Errorf("paystack disable subscription %d: %s", resp.StatusCode, msg)
+	}
+	// Paystack answers 200 with status:false for logical failures, so the
+	// status code alone is not enough.
+	var out struct {
+		Status  bool   `json:"status"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(msg, &out); err == nil && !out.Status {
+		return fmt.Errorf("paystack disable subscription failed: %s", out.Message)
 	}
 	return nil
 }
@@ -220,6 +278,8 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 
 		// Handles both shapes; on subscription events this is the object form.
 		planInfo, _ := ParsePaystackPlan(sub.Plan, nil)
+		// Without this the upsert wrote an empty interval over the stored one.
+		interval, _ := p.IntervalForPlanCode(planInfo.Code)
 
 		return &WebhookEvent{
 			Type:           normalisePaystackEvent(event.Event),
@@ -228,6 +288,7 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			Plan:           p.planFromCode(planInfo.Code),
 			Status:         normalisePaystackStatus(sub.Status),
 			Currency:       "ngn",
+			Interval:       interval,
 			PeriodEnd:      periodEnd,
 			// subscription.not_renew means the customer cancelled but keeps
 			// access until the period ends. Without this the upsert wrote
