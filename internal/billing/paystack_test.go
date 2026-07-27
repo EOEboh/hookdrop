@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -308,5 +309,37 @@ func TestHandleWebhook_SurvivesIntegerMetadata(t *testing.T) {
 	}
 	if ev.CustomerID != "CUS_1" {
 		t.Errorf("CustomerID = %q, want CUS_1 — the fallback key", ev.CustomerID)
+	}
+}
+
+// subscription.not_renew means "cancelled, but access continues". Treating it
+// as a plain update wrote cancel_at_period_end=false and undid the cancel.
+func TestHandleWebhook_NotRenewFlagsCancelAtPeriodEnd(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{ProMonthly: "PLN_monthly"})
+
+	cases := map[string]struct {
+		event    string
+		wantFlag bool
+	}{
+		"not_renew": {"subscription.not_renew", true},
+		"disable":   {"subscription.disable", true},
+		"create":    {"subscription.create", false},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"event":%q,"data":{
+              "subscription_code":"SUB_abc","status":"active","plan":"PLN_monthly",
+              "next_payment_date":"2026-08-27T00:00:00Z","metadata":0,
+              "customer":{"customer_code":"CUS_1","email":"a@b.c"}}}`, c.event)
+
+			ev, err := p.HandleWebhook([]byte(payload), sign512(t, payload))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if ev.CancelAtEnd != c.wantFlag {
+				t.Errorf("CancelAtEnd = %t, want %t", ev.CancelAtEnd, c.wantFlag)
+			}
+		})
 	}
 }
