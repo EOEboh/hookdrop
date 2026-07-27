@@ -116,6 +116,7 @@ export function PricingPage() {
 
   const [interval, setInterval]           = useState<'month' | 'year'>('month')
   const [payLoading, setPayLoading]        = useState(false)
+  const [payError, setPayError]            = useState<string | null>(null)
   const [showManagePanel, setShowManagePanel] = useState(false)
 
   const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
@@ -147,7 +148,18 @@ export function PricingPage() {
     reference: string,
     iv: 'month' | 'year',
   ) {
-    await handlePaystackSuccess(reference, iv)
+    setPayError(null)
+    try {
+      await handlePaystackSuccess(reference, iv)
+    } catch (err) {
+      // The card was charged but activation failed. Say so plainly rather
+      // than redirecting to a success page.
+      setPayError(
+        err instanceof Error
+          ? err.message
+          : 'Your payment went through, but we could not activate your subscription. Please contact support.',
+      )
+    }
     setPayLoading(false)
   }
 
@@ -363,6 +375,14 @@ export function PricingPage() {
                 </li>
               ))}
             </ul>
+            {payError && (
+              <div
+                role="alert"
+                className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400"
+              >
+                {payError}
+              </div>
+            )}
             <div className="pt-2">
               {currency === 'ngn' ? (
                 <PaystackButton

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -22,14 +23,44 @@ type PaystackProvider struct {
 	SecretKey  string
 	WebhookKey string
 	Plans      PaystackPlans
+	// BaseURL is the Paystack API root. Overridden in tests to point at a
+	// httptest server; empty means the live API.
+	BaseURL string
+	// RetryDelays is the backoff schedule for VerifyTransaction. Tests set it
+	// to zeros so the suite does not sit through the real backoff.
+	RetryDelays []time.Duration
+
+	http *http.Client
 }
+
+// defaultVerifyDelays: retry twice after the first attempt. Paystack can
+// briefly report a just-completed transaction as pending.
+var defaultVerifyDelays = []time.Duration{0, 1 * time.Second, 2 * time.Second}
+
+const paystackAPIBase = "https://api.paystack.co"
 
 func NewPaystackProvider(secretKey, webhookKey string, plans PaystackPlans) *PaystackProvider {
 	return &PaystackProvider{
 		SecretKey:  secretKey,
 		WebhookKey: webhookKey,
 		Plans:      plans,
+		BaseURL:    paystackAPIBase,
+		http:       &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+func (p *PaystackProvider) baseURL() string {
+	if p.BaseURL != "" {
+		return p.BaseURL
+	}
+	return paystackAPIBase
+}
+
+func (p *PaystackProvider) client() *http.Client {
+	if p.http != nil {
+		return p.http
+	}
+	return &http.Client{Timeout: 15 * time.Second}
 }
 
 func (p *PaystackProvider) Name() string { return "paystack" }
@@ -210,4 +241,188 @@ func (p *PaystackProvider) planFromCode(code string) string {
 		return "pro"
 	}
 	return "free"
+}
+
+// IntervalForPlanCode reports the billing interval for one of our configured
+// plan codes. The second return is false for any code that is not ours.
+//
+// This is the authority on interval — the client-supplied value is not
+// trusted, since it drives current_period_end.
+func (p *PaystackProvider) IntervalForPlanCode(code string) (string, bool) {
+	switch {
+	case code != "" && code == p.Plans.ProMonthly:
+		return "month", true
+	case code != "" && code == p.Plans.ProAnnual:
+		return "year", true
+	}
+	return "", false
+}
+
+// PaystackTransaction is the subset of a verified transaction we act on.
+type PaystackTransaction struct {
+	ID        int64
+	Status    string
+	Amount    int // kobo
+	Currency  string
+	Reference string
+	Email     string
+	// CustomerCode is Paystack's CUS_ identifier.
+	CustomerCode string
+	// Plan carries the plan code and, when Paystack told us, its amount.
+	Plan PaystackPlanInfo
+}
+
+// PaystackPlanInfo is the plan attached to a transaction.
+type PaystackPlanInfo struct {
+	Code string
+	// Amount in kobo. Zero means Paystack did not tell us the plan's price
+	// (it returned a bare plan code with no plan object), NOT that it is free.
+	Amount int
+	// AmountKnown distinguishes "the plan costs nothing" from "we do not know".
+	AmountKnown bool
+}
+
+// paystackVerifyResponse mirrors GET /transaction/verify/{reference}.
+//
+// Plan is json.RawMessage because Paystack returns it as a plan code string on
+// some transactions and as a full plan object on others — decoding it into a
+// fixed shape aborts the whole parse mid-way, which is what originally made
+// legitimate payments fail verification.
+type paystackVerifyResponse struct {
+	Status  bool   `json:"status"`
+	Message string `json:"message"`
+	Data    struct {
+		ID        int64  `json:"id"`
+		Status    string `json:"status"`
+		Amount    int    `json:"amount"`
+		Currency  string `json:"currency"`
+		Reference string `json:"reference"`
+		Customer  struct {
+			CustomerCode string `json:"customer_code"`
+			Email        string `json:"email"`
+		} `json:"customer"`
+		Plan       json.RawMessage `json:"plan"`
+		PlanObject json.RawMessage `json:"plan_object"`
+	} `json:"data"`
+}
+
+// ParsePaystackPlan extracts the plan code and amount from the two shapes
+// Paystack uses. `plan` may be a bare code string or a full object;
+// `plan_object` carries the object form when `plan` is a string.
+func ParsePaystackPlan(plan, planObject json.RawMessage) (PaystackPlanInfo, bool) {
+	var info PaystackPlanInfo
+
+	type planShape struct {
+		PlanCode string `json:"plan_code"`
+		Amount   int    `json:"amount"`
+		Interval string `json:"interval"`
+	}
+
+	// `plan` as a bare code string
+	var asString string
+	if len(plan) > 0 && json.Unmarshal(plan, &asString) == nil {
+		info.Code = strings.TrimSpace(asString)
+	}
+
+	// `plan` as an object
+	if info.Code == "" && len(plan) > 0 {
+		var obj planShape
+		if json.Unmarshal(plan, &obj) == nil && obj.PlanCode != "" {
+			info.Code = obj.PlanCode
+			info.Amount, info.AmountKnown = obj.Amount, true
+		}
+	}
+
+	// `plan_object` fills in the amount when `plan` was only a code
+	if len(planObject) > 0 && !info.AmountKnown {
+		var obj planShape
+		if json.Unmarshal(planObject, &obj) == nil && obj.PlanCode != "" {
+			if info.Code == "" {
+				info.Code = obj.PlanCode
+			}
+			if obj.PlanCode == info.Code {
+				info.Amount, info.AmountKnown = obj.Amount, true
+			}
+		}
+	}
+
+	return info, info.Code != ""
+}
+
+// VerifyTransaction verifies a transaction reference with Paystack, retrying
+// transient failures. Exhausting the retries is an error: a transaction that
+// cannot be verified must never be treated as paid.
+func (p *PaystackProvider) VerifyTransaction(
+	ctx context.Context,
+	reference string,
+) (*PaystackTransaction, error) {
+	if reference == "" {
+		return nil, fmt.Errorf("paystack: empty reference")
+	}
+
+	var lastErr error
+	delays := p.RetryDelays
+	if delays == nil {
+		delays = defaultVerifyDelays
+	}
+
+	for i, delay := range delays {
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET",
+			p.baseURL()+"/transaction/verify/"+url.PathEscape(reference), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+p.SecretKey)
+
+		resp, err := p.client().Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("attempt %d: %w", i+1, err)
+			continue
+		}
+
+		var out paystackVerifyResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+
+		if decodeErr != nil {
+			lastErr = fmt.Errorf("attempt %d: decode: %w", i+1, decodeErr)
+			continue
+		}
+
+		if !out.Status || out.Data.Status != "success" {
+			// Not transient in most cases, but Paystack can briefly report a
+			// just-completed transaction as pending, which is why we retry.
+			lastErr = fmt.Errorf("attempt %d: status=%v data.status=%q message=%q",
+				i+1, out.Status, out.Data.Status, out.Message)
+			continue
+		}
+
+		planInfo, ok := ParsePaystackPlan(out.Data.Plan, out.Data.PlanObject)
+		if !ok {
+			// No plan means this was a one-off charge, not a subscription.
+			return nil, fmt.Errorf("paystack: transaction %s has no plan attached", reference)
+		}
+
+		return &PaystackTransaction{
+			ID:           out.Data.ID,
+			Status:       out.Data.Status,
+			Amount:       out.Data.Amount,
+			Currency:     out.Data.Currency,
+			Reference:    out.Data.Reference,
+			Email:        out.Data.Customer.Email,
+			CustomerCode: out.Data.Customer.CustomerCode,
+			Plan:         planInfo,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("paystack verify %s failed after %d attempts: %w",
+		reference, len(delays), lastErr)
 }
