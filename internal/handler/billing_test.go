@@ -2,7 +2,11 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -347,5 +351,194 @@ func TestVerifyPaystack_RejectsNonNGNCurrency(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── Webhook dedupe and ordering ──────────────────────────────────────────
+
+const lsWebhookSecret = "ls-test-secret"
+
+func newWebhookTestHandler(t *testing.T) (*BillingHandler, *models.User) {
+	t.Helper()
+
+	st, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	user, err := st.GetOrCreateUser("subscriber@example.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	ls := billing.NewLemonSqueezyProvider(
+		"key", lsWebhookSecret, "99999",
+		billing.LemonSqueezyVariants{ProMonthly: "111111", ProAnnual: "222222"},
+		true,
+	)
+
+	return &BillingHandler{Store: st, LemonSqueezy: ls, AppURL: "http://localhost:5173"}, user
+}
+
+func lsSubscriptionPayload(userID, status, updatedAt string) string {
+	return fmt.Sprintf(`{
+      "meta": {"event_name":"subscription_updated","custom_data":{"user_id":%q}},
+      "data": {"id":"878123","attributes":{
+        "customer_id":4210987,"variant_id":111111,"status":%q,"cancelled":false,
+        "trial_ends_at":null,"first_subscription_item":null,
+        "renews_at":"2026-09-27T12:00:00.000000Z","ends_at":null,
+        "updated_at":%q}}}`, userID, status, updatedAt)
+}
+
+// postLSWebhook signs and delivers a payload, returning the recorder and the
+// payload's dedupe key.
+func postLSWebhook(t *testing.T, h *BillingHandler, payload string) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	mac := hmac.New(sha256.New, []byte(lsWebhookSecret))
+	mac.Write([]byte(payload))
+	sum := sha256.Sum256([]byte(payload))
+
+	req := httptest.NewRequest(http.MethodPost, "/billing/webhook/lemonsqueezy",
+		strings.NewReader(payload))
+	req.Header.Set("X-Signature", hex.EncodeToString(mac.Sum(nil)))
+	req.Header.Set("X-Event-Name", "subscription_updated")
+
+	rec := httptest.NewRecorder()
+	h.LemonSqueezyWebhook(rec, req)
+	return rec, hex.EncodeToString(sum[:])
+}
+
+// requireEvent asserts a delivery was recorded, and returns it.
+func requireEvent(t *testing.T, h *BillingHandler, key string) *models.BillingEvent {
+	t.Helper()
+	ev, err := h.Store.GetBillingEventByKey(key)
+	if err != nil {
+		t.Fatalf("lookup event: %v", err)
+	}
+	if ev == nil {
+		t.Fatal("delivery was not recorded")
+	}
+	return ev
+}
+
+// A retried delivery is byte-identical, so it must be absorbed, not reapplied.
+func TestWebhook_DuplicateDeliveryProcessedOnce(t *testing.T) {
+	h, user := newWebhookTestHandler(t)
+	payload := lsSubscriptionPayload(user.ID, "active", "2026-07-27T12:00:00.000000Z")
+
+	var key string
+	for i := 1; i <= 3; i++ {
+		rec, k := postLSWebhook(t, h, payload)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("delivery %d: got %d, want 200: %s", i, rec.Code, rec.Body.String())
+		}
+		key = k
+	}
+
+	// One row for the three deliveries: re-recording the key still collides.
+	requireEvent(t, h, key)
+	if err := h.Store.RecordBillingEvent(&models.BillingEvent{
+		Provider: "lemonsqueezy", EventType: "x", Payload: "{}", EventKey: key,
+	}); !errors.Is(err, store.ErrDuplicateBillingEvent) {
+		t.Errorf("re-record err = %v, want ErrDuplicateBillingEvent", err)
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "pro" {
+		t.Errorf("plan = %q, want pro", sub.Plan)
+	}
+}
+
+// The scenario the ordering check exists for: an expiry lands, then a retried
+// earlier update arrives. It must not put the customer back on Pro.
+func TestWebhook_StaleDeliveryDoesNotResurrectPro(t *testing.T) {
+	h, user := newWebhookTestHandler(t)
+
+	// Newest event first: the subscription has expired.
+	expired := lsSubscriptionPayload(user.ID, "expired", "2026-07-27T12:00:05.000000Z")
+	if rec, _ := postLSWebhook(t, h, expired); rec.Code != http.StatusOK {
+		t.Fatalf("expired delivery: got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Fatalf("after expiry plan = %q, want free", sub.Plan)
+	}
+
+	// Now a stale active update, retried from before the expiry.
+	stale := lsSubscriptionPayload(user.ID, "active", "2026-07-27T12:00:00.000000Z")
+	if rec, _ := postLSWebhook(t, h, stale); rec.Code != http.StatusOK {
+		t.Fatalf("stale delivery: got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	sub, _ = h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Errorf("plan = %q, want free — a stale delivery resurrected Pro", sub.Plan)
+	}
+	if sub.Status != "canceled" {
+		t.Errorf("status = %q, want canceled", sub.Status)
+	}
+}
+
+// An expired subscription must not be left as plan=pro with status=canceled.
+func TestWebhook_ExpiredStatusDropsPlanToFree(t *testing.T) {
+	h, user := newWebhookTestHandler(t)
+
+	payload := lsSubscriptionPayload(user.ID, "expired", "2026-07-27T12:00:00.000000Z")
+	if rec, _ := postLSWebhook(t, h, payload); rec.Code != http.StatusOK {
+		t.Fatalf("got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Errorf("plan = %q, want free — subscription_updated carrying status=expired left the row inconsistent", sub.Plan)
+	}
+}
+
+// Unverified payloads must never reach the audit trail.
+func TestWebhook_BadSignatureIsNotRecorded(t *testing.T) {
+	h, user := newWebhookTestHandler(t)
+	payload := lsSubscriptionPayload(user.ID, "active", "2026-07-27T12:00:00.000000Z")
+
+	req := httptest.NewRequest(http.MethodPost, "/billing/webhook/lemonsqueezy",
+		strings.NewReader(payload))
+	req.Header.Set("X-Signature", "deadbeef")
+	rec := httptest.NewRecorder()
+	h.LemonSqueezyWebhook(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+
+	sum := sha256.Sum256([]byte(payload))
+	ev, err := h.Store.GetBillingEventByKey(hex.EncodeToString(sum[:]))
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if ev != nil {
+		t.Error("an unverified payload was written to the audit trail")
+	}
+}
+
+// Ignored event types are still recorded, for the audit trail.
+func TestWebhook_IgnoredEventRecordedButNotApplied(t *testing.T) {
+	h, user := newWebhookTestHandler(t)
+
+	payload := fmt.Sprintf(`{
+      "meta":{"event_name":"order_created","custom_data":{"user_id":%q}},
+      "data":{"type":"orders","id":"5551234","attributes":{"status":"paid"}}}`, user.ID)
+
+	rec, key := postLSWebhook(t, h, payload)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	ev := requireEvent(t, h, key)
+	if ev.Processed {
+		t.Error("an ignored event was marked processed")
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Errorf("plan = %q, want free — order_created must not touch the subscription", sub.Plan)
 	}
 }

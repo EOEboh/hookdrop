@@ -2,7 +2,10 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -149,62 +152,170 @@ func (h *BillingHandler) GetPortal(w http.ResponseWriter, r *http.Request) {
 
 // POST /billing/webhook/lemonsqueezy
 func (h *BillingHandler) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
+	h.handleWebhook(w, r, webhookRoute{
+		provider:        "lemonsqueezy",
+		signatureHeader: "X-Signature",
+		eventNameHeader: "X-Event-Name",
+		handler:         h.LemonSqueezy,
+	})
+}
+
+// POST /billing/webhook/paystack
+func (h *BillingHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
+	h.handleWebhook(w, r, webhookRoute{
+		provider:        "paystack",
+		signatureHeader: "X-Paystack-Signature",
+		handler:         h.Paystack,
+	})
+}
+
+type webhookRoute struct {
+	provider        string
+	signatureHeader string
+	// eventNameHeader is the header carrying the provider's event name, where
+	// one exists. Empty means fall back to parsing the payload.
+	eventNameHeader string
+	handler         billing.Provider
+}
+
+// handleWebhook is the shared inbound path for both providers: verify, record,
+// deduplicate, reject stale deliveries, then process.
+func (h *BillingHandler) handleWebhook(
+	w http.ResponseWriter,
+	r *http.Request,
+	route webhookRoute,
+) {
 	// MaxBytesReader errors on an oversized body rather than silently
 	// truncating it — a truncated payload would fail signature verification
 	// and be reported as a forgery.
 	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
-		log.Printf("lemonsqueezy webhook: read error: %v", err)
+		log.Printf("%s webhook: read error: %v", route.provider, err)
 		http.Error(w, "read error", http.StatusBadRequest)
 		return
 	}
 
-	sig := r.Header.Get("X-Signature")
-	event, err := h.LemonSqueezy.HandleWebhook(payload, sig)
+	// Signature first, always. Nothing unverified is ever recorded.
+	event, err := route.handler.HandleWebhook(payload, r.Header.Get(route.signatureHeader))
 	if err != nil {
-		log.Printf("lemonsqueezy webhook error: %v", err)
+		log.Printf("%s webhook error: %v", route.provider, err)
 		http.Error(w, "invalid signature", http.StatusBadRequest)
 		return
 	}
 
+	eventType := r.Header.Get(route.eventNameHeader)
+	if eventType == "" {
+		eventType = providerEventName(payload)
+	}
+
+	// Neither provider sends a unique event ID, but retries are byte-identical
+	// (the signature is computed over the raw body), so the payload hash is a
+	// stable dedupe key for both.
+	sum := sha256.Sum256(payload)
+	eventKey := hex.EncodeToString(sum[:])
+
+	record := &models.BillingEvent{
+		Provider:  route.provider,
+		EventType: eventType,
+		Payload:   string(payload),
+		EventKey:  eventKey,
+	}
 	if event != nil {
-		if err := h.processWebhookEvent(event, "lemonsqueezy"); err != nil {
-			// Return non-2xx so Lemonsqueezy retries and the failure is visible
-			// in the dashboard's webhook log, not just ours.
-			log.Printf("process lemonsqueezy event error: %v", err)
-			http.Error(w, "processing failed", http.StatusInternalServerError)
-			return
+		record.UserID = event.UserID
+		record.ObjectID = event.SubscriptionID
+		if event.EventAt > 0 {
+			t := time.Unix(event.EventAt, 0).UTC()
+			record.EventAt = &t
 		}
 	}
 
+	switch err := h.Store.RecordBillingEvent(record); {
+	case errors.Is(err, store.ErrDuplicateBillingEvent):
+		// The provider retried something we already have. 200 stops the
+		// retries; re-processing would be wasted work at best.
+		log.Printf("%s webhook: duplicate delivery %s (%s) — already recorded",
+			route.provider, eventType, eventKey[:12])
+		writeWebhookOK(w)
+		return
+	case err != nil:
+		// Failing to record means we cannot guarantee idempotency, so do not
+		// process. Non-2xx asks the provider to try again.
+		log.Printf("%s webhook: could not record event: %v", route.provider, err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+
+	if event == nil {
+		// Recorded for the audit trail, but not an event we act on.
+		writeWebhookOK(w)
+		return
+	}
+
+	// Out-of-order guard: a delivery older than one already applied to this
+	// subscription must not be replayed over it. Without this a retried
+	// subscription_updated landing after subscription_expired resurrects Pro.
+	if record.EventAt != nil {
+		latest, found, err := h.Store.LatestProcessedEventAt(route.provider, record.ObjectID)
+		if err != nil {
+			log.Printf("%s webhook: ordering check failed: %v", route.provider, err)
+			http.Error(w, "storage error", http.StatusInternalServerError)
+			return
+		}
+		if found && record.EventAt.Before(latest) {
+			log.Printf("%s webhook: SKIPPING stale %s for %s (event_at=%s, already applied %s)",
+				route.provider, eventType, record.ObjectID,
+				record.EventAt.Format(time.RFC3339), latest.Format(time.RFC3339))
+			// Left processed=0 on purpose: processed means "applied to the
+			// subscription", and this one deliberately was not.
+			writeWebhookOK(w)
+			return
+		}
+	} else {
+		log.Printf("%s webhook: %s carries no timestamp — no ordering protection",
+			route.provider, eventType)
+	}
+
+	if err := h.processWebhookEvent(event, route.provider); err != nil {
+		// Non-2xx so the provider retries and the failure shows up in its
+		// dashboard, not only in our logs.
+		log.Printf("process %s event error: %v", route.provider, err)
+		http.Error(w, "processing failed", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.Store.MarkBillingEventProcessed(eventKey, event.UserID); err != nil {
+		log.Printf("%s webhook: could not mark %s processed: %v",
+			route.provider, eventKey[:12], err)
+	}
+
+	writeWebhookOK(w)
+}
+
+func writeWebhookOK(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"received": "true"})
 }
 
-// POST /billing/webhook/paystack
-func (h *BillingHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
-	payload, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		http.Error(w, "read error", http.StatusBadRequest)
-		return
+// providerEventName pulls the event name out of a payload for the audit trail,
+// covering both providers' envelopes without committing to either shape.
+func providerEventName(payload []byte) string {
+	var envelope struct {
+		Event string `json:"event"` // Paystack
+		Meta  struct {
+			EventName string `json:"event_name"` // Lemon Squeezy
+		} `json:"meta"`
 	}
-
-	sig := r.Header.Get("X-Paystack-Signature")
-	event, err := h.Paystack.HandleWebhook(payload, sig)
-	if err != nil {
-		log.Printf("paystack webhook error: %v", err)
-		http.Error(w, "invalid signature", http.StatusBadRequest)
-		return
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return "unknown"
 	}
-
-	if event != nil {
-		if err := h.processWebhookEvent(event, "paystack"); err != nil {
-			log.Printf("process paystack event error: %v", err)
-		}
+	if envelope.Event != "" {
+		return envelope.Event
 	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"received": "true"})
+	if envelope.Meta.EventName != "" {
+		return envelope.Meta.EventName
+	}
+	return "unknown"
 }
 
 // processWebhookEvent now takes an explicit providerName so Provider is
@@ -258,8 +369,13 @@ func (h *BillingHandler) processWebhookEvent(
 		trialEnd = existing.TrialEnd
 	}
 
+	// Derive the plan from the status, not the event type. Lemon Squeezy fires
+	// subscription_expired and subscription_updated together at end of life;
+	// the updated one normalises to subscription.updated while carrying
+	// status "expired", which used to write plan=pro alongside status=canceled.
+	// IsActive also keeps past_due on Pro through its grace period.
 	plan := event.Plan
-	if event.Type == "subscription.canceled" {
+	if !billing.IsActive(event.Status, periodEnd) {
 		plan = "free"
 	}
 
