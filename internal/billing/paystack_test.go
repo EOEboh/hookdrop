@@ -2,6 +2,9 @@ package billing
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +12,15 @@ import (
 	"testing"
 	"time"
 )
+
+const testSecret512 = "paystack-test-secret"
+
+func sign512(t *testing.T, payload string) string {
+	t.Helper()
+	mac := hmac.New(sha512.New, []byte(testSecret512))
+	mac.Write([]byte(payload))
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 func TestParsePaystackPlan(t *testing.T) {
 	cases := []struct {
@@ -222,5 +234,79 @@ func TestVerifyTransaction_EmptyReference(t *testing.T) {
 	}
 	if *calls != 0 {
 		t.Errorf("made %d requests for an empty reference, want 0", *calls)
+	}
+}
+
+func TestPaystackMetadataUserID(t *testing.T) {
+	cases := map[string]struct {
+		raw  string
+		want string
+	}{
+		// Paystack sends the integer 0 when no metadata was set. Decoding that
+		// into a struct fails, which must not take the whole event with it.
+		"integer zero":     {`0`, ""},
+		"empty string":     {`""`, ""},
+		"null":             {`null`, ""},
+		"absent":           {``, ""},
+		"object":           {`{"user_id":"user-123"}`, "user-123"},
+		"object padded":    {`{"user_id":"  user-123  "}`, "user-123"},
+		"object other key": {`{"cancel_url":"https://x"}`, ""},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := paystackMetadataUserID(json.RawMessage(c.raw)); got != c.want {
+				t.Errorf("paystackMetadataUserID(%s) = %q, want %q", c.raw, got, c.want)
+			}
+		})
+	}
+}
+
+// The user_id lives in transaction metadata; customer.metadata is a separate
+// field that is usually null.
+func TestHandleWebhook_ReadsUserIDFromTransactionMetadata(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{ProMonthly: "PLN_monthly"})
+
+	payload := `{"event":"subscription.create","data":{
+      "subscription_code":"SUB_abc","status":"active","plan":"PLN_monthly",
+      "next_payment_date":"2026-08-27T00:00:00.000Z",
+      "metadata":{"user_id":"user-from-transaction"},
+      "createdAt":"2026-07-27T00:00:00.000Z",
+      "customer":{"customer_code":"CUS_1","email":"a@b.c","metadata":null}}}`
+
+	ev, err := p.HandleWebhook([]byte(payload), sign512(t, payload))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ev.UserID != "user-from-transaction" {
+		t.Errorf("UserID = %q, want user-from-transaction", ev.UserID)
+	}
+	if ev.SubscriptionID != "SUB_abc" {
+		t.Errorf("SubscriptionID = %q, want SUB_abc", ev.SubscriptionID)
+	}
+	if ev.EventAt == 0 {
+		t.Error("EventAt = 0, want the parsed createdAt")
+	}
+}
+
+// metadata:0 must not abort the parse — the event still has to resolve by
+// customer code downstream.
+func TestHandleWebhook_SurvivesIntegerMetadata(t *testing.T) {
+	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{ProMonthly: "PLN_monthly"})
+
+	payload := `{"event":"subscription.create","data":{
+      "subscription_code":"SUB_abc","status":"active","plan":"PLN_monthly",
+      "metadata":0,
+      "customer":{"customer_code":"CUS_1","email":"a@b.c","metadata":null}}}`
+
+	ev, err := p.HandleWebhook([]byte(payload), sign512(t, payload))
+	if err != nil {
+		t.Fatalf("integer metadata aborted the parse: %v", err)
+	}
+	if ev.UserID != "" {
+		t.Errorf("UserID = %q, want empty", ev.UserID)
+	}
+	if ev.CustomerID != "CUS_1" {
+		t.Errorf("CustomerID = %q, want CUS_1 — the fallback key", ev.CustomerID)
 	}
 }

@@ -54,19 +54,21 @@ const PRICE_DISPLAY = {
 function PaystackButton({
   interval,
   email,
+  userId,
   loading,
   setLoading,
   onSuccess,
 }: {
   interval: 'month' | 'year'
   email: string
+  userId: string
   loading: boolean
   setLoading: (v: boolean) => void
   onSuccess: (ref: string, interval: 'month' | 'year') => void
 }) {
   const posthog = usePostHog() 
   const { getPaystackConfig } = useBilling()
-  const config = getPaystackConfig(interval, email)
+  const config = getPaystackConfig(interval, email, userId)
   const initializePayment = usePaystackPayment(config)
 
   const display = PRICE_DISPLAY[interval]
@@ -398,6 +400,7 @@ export function PricingPage() {
                 <PaystackButton
                   interval={interval}
                   email={user?.email ?? ''}
+                  userId={user?.id ?? ''}
                   loading={payLoading}
                   setLoading={setPayLoading}
                   onSuccess={handlePaystackSuccess_}
