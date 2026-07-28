@@ -904,6 +904,63 @@ func (s *Store) GetSubscriptionByProviderCustomerID(customerID string) (*models.
 	return s.subscriptionBy("provider_customer_id", customerID)
 }
 
+// ListPaystackSubscriptionsNeedingRepair returns Paystack rows whose
+// provider_sub_id is not a subscription code.
+//
+// Rows created before subscription.create was applied correctly hold the
+// transaction reference instead. Paystack cannot cancel those, and their
+// current_period_end was derived at signup and never refreshed.
+func (s *Store) ListPaystackSubscriptionsNeedingRepair() ([]*models.Subscription, error) {
+	rows, err := s.db.Query(`
+		SELECT id, user_id, plan, COALESCE(provider,''),
+		       COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
+		       status, current_period_end, trial_end,
+		       cancel_at_period_end, COALESCE(currency,'usd'),
+		       COALESCE(interval,'month'), created_at, updated_at
+		FROM subscriptions
+		WHERE provider = 'paystack'
+		  AND COALESCE(provider_sub_id,'') NOT LIKE 'SUB\_%' ESCAPE '\'
+		ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*models.Subscription
+	for rows.Next() {
+		sub := &models.Subscription{}
+		if err := rows.Scan(
+			&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
+			&sub.ProviderCustomerID, &sub.ProviderSubID,
+			&sub.Status, &sub.CurrentPeriodEnd, &sub.TrialEnd,
+			&sub.CancelAtPeriodEnd, &sub.Currency, &sub.Interval,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, sub)
+	}
+	return out, rows.Err()
+}
+
+// RepairPaystackSubscription writes back the real subscription code and period
+// for a row that was created holding a transaction reference.
+func (s *Store) RepairPaystackSubscription(
+	id, subscriptionCode, status string,
+	periodEnd *time.Time,
+) error {
+	_, err := s.db.Exec(`
+		UPDATE subscriptions
+		SET provider_sub_id    = ?,
+		    status             = ?,
+		    current_period_end = ?,
+		    updated_at         = ?
+		WHERE id = ?`,
+		subscriptionCode, status, periodEnd, time.Now().UTC(), id,
+	)
+	return err
+}
+
 // subscriptionBy fetches one subscription by an indexed provider column.
 // column is never caller-supplied — it comes from the two wrappers above.
 func (s *Store) subscriptionBy(column, value string) (*models.Subscription, error) {

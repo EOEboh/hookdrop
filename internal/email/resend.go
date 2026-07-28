@@ -4,16 +4,34 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
+	"time"
 )
 
 type Sender struct {
 	apiKey   string
 	fromAddr string
+
+	http *http.Client
 }
 
 func NewSender(apiKey, fromAddr string) *Sender {
-	return &Sender{apiKey: apiKey, fromAddr: fromAddr}
+	return &Sender{
+		apiKey:   apiKey,
+		fromAddr: fromAddr,
+		http:     &http.Client{Timeout: 15 * time.Second},
+	}
+}
+
+// client falls back for Senders built as a zero value, so a nil http field
+// cannot panic on the login path.
+func (s *Sender) client() *http.Client {
+	if s.http != nil {
+		return s.http
+	}
+	return &http.Client{Timeout: 15 * time.Second}
 }
 
 type emailPayload struct {
@@ -43,14 +61,19 @@ func (s *Sender) SendMagicLink(toEmail, magicURL string) error {
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.client().Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("resend API error: %d", resp.StatusCode)
+		// Include the body and the recipient. Resend explains its rejections
+		// there — reporting the bare status code made a recurring 422
+		// impossible to diagnose.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("resend API error %d sending to %s: %s",
+			resp.StatusCode, toEmail, strings.TrimSpace(string(body)))
 	}
 	return nil
 }

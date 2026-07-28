@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -45,7 +46,16 @@ func loadEnvFile(path string) {
 	}
 }
 
+// Maintenance flags. Without these the binary starts the server as usual.
+var (
+	repairPaystack = flag.Bool("repair-paystack", false,
+		"reconcile Paystack rows holding a transaction reference instead of a subscription code, then exit")
+	applyRepair = flag.Bool("apply", false,
+		"with -repair-paystack, write the changes instead of only reporting them")
+)
+
 func main() {
+	flag.Parse()
 	loadEnvFile(".env.local")
 
 	// ── Core config
@@ -122,6 +132,15 @@ func main() {
 			ProAnnual:  paystackPlanAnnual,
 		},
 	)
+
+	// Maintenance mode: reconcile legacy Paystack rows and exit without
+	// starting the server.
+	if *repairPaystack {
+		if err := repairPaystackSubscriptions(st, paystackProvider, *applyRepair); err != nil {
+			log.Fatalf("repair failed: %v", err)
+		}
+		return
+	}
 
 	emailLimiter := middleware.NewEmailRateLimiter(5)        // 5 per email per hour
 	authIPLimiter := middleware.NewRateLimiter(10, 10.0/600) // 10 capacity, refills to 10 every 10 min

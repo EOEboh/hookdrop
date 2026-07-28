@@ -363,6 +363,62 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			UserID:    paystackMetadataUserID(charge.Metadata),
 			EventAt:   paidAt,
 		}, nil
+
+	case "invoice.payment_failed", "invoice.update":
+		// A renewal charge failed. Paystack does not retry, so this is the
+		// only notice we get that the subscription has stopped paying.
+		//
+		// This exists to make the downgrade prompt. It is NOT what guarantees
+		// correctness — IsActive expires access once the period lapses, which
+		// holds whether or not this event ever arrives or is shaped as
+		// expected. Parsed defensively for that reason: only fields present in
+		// every Paystack payload observed so far are relied on.
+		var inv struct {
+			Status   string          `json:"status"`
+			Paid     *bool           `json:"paid"`
+			Plan     json.RawMessage `json:"plan"`
+			Sub      json.RawMessage `json:"subscription"`
+			Created  string          `json:"createdAt"`
+			Updated  string          `json:"updatedAt"`
+			Customer struct {
+				CustomerCode string `json:"customer_code"`
+			} `json:"customer"`
+		}
+		if err := json.Unmarshal(event.Data, &inv); err != nil {
+			return nil, err
+		}
+
+		// invoice.update reports the final outcome, success included. Only a
+		// failure is actionable here; a success is already covered by
+		// charge.success, which carries the payment date.
+		failed := event.Event == "invoice.payment_failed" ||
+			(inv.Paid != nil && !*inv.Paid) ||
+			strings.EqualFold(inv.Status, "failed")
+		if !failed {
+			return nil, nil
+		}
+
+		planInfo, ok := ParsePaystackPlan(inv.Plan, nil)
+		if !ok {
+			return nil, nil
+		}
+		if _, ours := p.IntervalForPlanCode(planInfo.Code); !ours {
+			return nil, nil
+		}
+
+		return &WebhookEvent{
+			Type:       "subscription.updated",
+			CustomerID: inv.Customer.CustomerCode,
+			// The subscription code is nested and its shape is unconfirmed, so
+			// it is deliberately not read — processWebhookEvent preserves the
+			// stored one and the user resolves by customer code.
+			Plan:     "pro",
+			Status:   "past_due",
+			Currency: "ngn",
+			// PeriodEnd is deliberately left at zero: a failed charge moves no
+			// period, and processWebhookEvent keeps the stored value.
+			EventAt: firstParsedTime(inv.Updated, inv.Created),
+		}, nil
 	}
 	return nil, nil
 }
@@ -634,4 +690,77 @@ func (p *PaystackProvider) VerifyTransaction(
 
 	return nil, fmt.Errorf("paystack verify %s failed after %d attempts: %w",
 		reference, len(delays), lastErr)
+}
+
+// PaystackCustomerSubscription is a subscription as reported on the customer
+// object, which is the only route from a customer *code* to a subscription.
+//
+// GET /subscription?customer= expects the numeric customer id, not the code,
+// and silently returns zero rows when given a code — which is what made the
+// old cancel path fail without complaining.
+type PaystackCustomerSubscription struct {
+	SubscriptionCode string
+	Status           string
+	NextPaymentAt    int64 // Unix; 0 when Paystack reported none
+}
+
+// LookupCustomerSubscription finds the subscription belonging to a customer
+// code. It prefers an active subscription, falling back to the most recently
+// listed one so a cancelled subscription can still be reconciled.
+func (p *PaystackProvider) LookupCustomerSubscription(
+	ctx context.Context,
+	customerCode string,
+) (*PaystackCustomerSubscription, error) {
+	if customerCode == "" {
+		return nil, fmt.Errorf("paystack: empty customer code")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		p.baseURL()+"/customer/"+url.PathEscape(customerCode), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
+
+	resp, err := p.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Status  bool   `json:"status"`
+		Message string `json:"message"`
+		Data    struct {
+			ID            int64 `json:"id"`
+			Subscriptions []struct {
+				SubscriptionCode string `json:"subscription_code"`
+				Status           string `json:"status"`
+				NextPaymentDate  string `json:"next_payment_date"`
+			} `json:"subscriptions"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if !out.Status {
+		return nil, fmt.Errorf("paystack customer %s: %s", customerCode, out.Message)
+	}
+	if len(out.Data.Subscriptions) == 0 {
+		return nil, fmt.Errorf("paystack customer %s has no subscriptions", customerCode)
+	}
+
+	chosen := out.Data.Subscriptions[0]
+	for _, s := range out.Data.Subscriptions {
+		if s.Status == "active" {
+			chosen = s
+			break
+		}
+	}
+
+	return &PaystackCustomerSubscription{
+		SubscriptionCode: chosen.SubscriptionCode,
+		Status:           normalisePaystackStatus(chosen.Status),
+		NextPaymentAt:    firstParsedTime(chosen.NextPaymentDate),
+	}, nil
 }

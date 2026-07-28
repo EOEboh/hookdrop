@@ -274,3 +274,92 @@ func TestDeleteOldBillingEvents(t *testing.T) {
 		t.Errorf("fresh event was deleted: re-record err = %v", err)
 	}
 }
+
+func seedSub(t *testing.T, s *Store, email, provider, subID string) *models.Subscription {
+	t.Helper()
+	u, err := s.GetOrCreateUser(email)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sub := &models.Subscription{
+		UserID:             u.ID,
+		Plan:               "pro",
+		Provider:           provider,
+		ProviderCustomerID: "CUS_" + email,
+		ProviderSubID:      subID,
+		Status:             "active",
+		Currency:           "ngn",
+		Interval:           "month",
+		CreatedAt:          time.Now().UTC(),
+	}
+	if err := s.UpsertSubscription(sub); err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	return sub
+}
+
+// Only Paystack rows holding a transaction reference need reconciling.
+func TestListPaystackSubscriptionsNeedingRepair(t *testing.T) {
+	s := newTestStore(t)
+
+	seedSub(t, s, "legacy@example.com", "paystack", "T330737077490502")
+	seedSub(t, s, "healthy@example.com", "paystack", "SUB_abc123")
+	seedSub(t, s, "lemon@example.com", "lemonsqueezy", "2381221")
+	seedSub(t, s, "blank@example.com", "paystack", "")
+
+	rows, err := s.ListPaystackSubscriptionsNeedingRepair()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.ProviderSubID] = true
+	}
+	if !got["T330737077490502"] {
+		t.Error("the transaction-reference row was not selected")
+	}
+	if !got[""] {
+		t.Error("a row with no subscription id was not selected")
+	}
+	if got["SUB_abc123"] {
+		t.Error("a row already holding a subscription code was selected")
+	}
+	if got["2381221"] {
+		t.Error("a Lemon Squeezy row was selected")
+	}
+	if len(rows) != 2 {
+		t.Errorf("selected %d rows, want 2", len(rows))
+	}
+}
+
+func TestRepairPaystackSubscription(t *testing.T) {
+	s := newTestStore(t)
+	sub := seedSub(t, s, "legacy@example.com", "paystack", "T330737077490502")
+
+	next := time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	if err := s.RepairPaystackSubscription(sub.ID, "SUB_repaired", "active", &next); err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+
+	got, err := s.GetSubscription(sub.UserID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ProviderSubID != "SUB_repaired" {
+		t.Errorf("provider_sub_id = %q, want SUB_repaired", got.ProviderSubID)
+	}
+	if got.CurrentPeriodEnd == nil || !got.CurrentPeriodEnd.Equal(next) {
+		t.Errorf("current_period_end = %v, want %v", got.CurrentPeriodEnd, next)
+	}
+	// Repair must not disturb anything else on the row.
+	if got.Plan != "pro" || got.Provider != "paystack" {
+		t.Errorf("plan/provider = %s/%s, want pro/paystack", got.Plan, got.Provider)
+	}
+
+	// Nothing left to repair afterwards.
+	rows, _ := s.ListPaystackSubscriptionsNeedingRepair()
+	if len(rows) != 0 {
+		t.Errorf("%d rows still need repair after repairing them all", len(rows))
+	}
+}
