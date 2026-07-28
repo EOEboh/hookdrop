@@ -533,8 +533,22 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// Same user re-verifying is idempotent: a double submit or a retried
 	// handlePaystackSuccess must not lock a paying customer out.
 
-	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d",
-		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount)
+	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d card_country=%s payer_ip=%s",
+		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount, tx.CardCountry, tx.PayerIP)
+
+	// NGN pricing is substantially cheaper than USD, and the currency is
+	// chosen client-side — localStorage hookdrop_currency is enough to pick
+	// it. The card's country is the only server-side evidence of where the
+	// payer really is.
+	//
+	// Flagged, not blocked: a Nigerian customer paying with a foreign-issued
+	// card is a real case, and refusing them after they have been charged is
+	// a worse failure than the mispricing. This makes the exposure visible so
+	// it can be judged on evidence.
+	if tx.CardCountry != "" && !billing.PaystackCountries[tx.CardCountry] {
+		log.Printf("WARNING: VerifyPaystack: NGN pricing paid with a %s card — user=%s ref=%s customer=%s payer_ip=%s (review: possible currency mispricing)",
+			tx.CardCountry, user.ID, body.Reference, tx.CustomerCode, tx.PayerIP)
+	}
 
 	now := time.Now().UTC()
 
