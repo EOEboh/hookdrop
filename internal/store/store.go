@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -177,7 +178,10 @@ func (s *Store) migrate() error {
     event_type   TEXT NOT NULL,
     payload      TEXT NOT NULL,
     processed    INTEGER DEFAULT 0,
-    created_at   DATETIME NOT NULL
+    created_at   DATETIME NOT NULL,
+    event_key    TEXT,      -- sha256 of the raw payload; dedupe key
+    event_at     DATETIME,  -- the provider's own event timestamp, for ordering
+    object_id    TEXT       -- provider subscription/transaction id
 );
 
 	CREATE INDEX IF NOT EXISTS idx_subscriptions_user
@@ -219,11 +223,34 @@ func (s *Store) migrate() error {
 		{"requests", "provider", "TEXT DEFAULT ''"},
 		{"users", "country", "TEXT"},
 		{"users", "billing_email", "TEXT"},
+		// billing_events gained these when webhook deduplication landed;
+		// deployed databases already have the narrower table.
+		{"billing_events", "event_key", "TEXT"},
+		{"billing_events", "event_at", "DATETIME"},
+		{"billing_events", "object_id", "TEXT"},
 	}
 
 	for _, m := range migrations {
 		if err := s.addColumnIfNotExists(m.table, m.column, m.definition); err != nil {
 			return fmt.Errorf("add column %s.%s: %w", m.table, m.column, err)
+		}
+	}
+
+	// Indexes that depend on migrated columns, so they cannot live in the
+	// schema block above. The unique index is what makes duplicate webhook
+	// deliveries fail fast at the database rather than in application logic;
+	// SQLite treats NULLs as distinct, so pre-existing rows do not collide.
+	postMigrationIndexes := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_events_key
+		   ON billing_events(event_key)`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_events_object
+		   ON billing_events(provider, object_id, processed)`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_events_created
+		   ON billing_events(created_at)`,
+	}
+	for _, stmt := range postMigrationIndexes {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return fmt.Errorf("billing_events index: %w", err)
 		}
 	}
 
@@ -727,6 +754,136 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 	return sub, nil
 }
 
+// BillingEventRetention is how long processed webhook events are kept. Far
+// beyond either provider's retry window, but long enough to answer "why is
+// this customer on the wrong plan" weeks later.
+const BillingEventRetention = 90 * 24 * time.Hour
+
+// ErrDuplicateBillingEvent means this exact webhook payload has been seen
+// before — the provider retried a delivery we already have.
+var ErrDuplicateBillingEvent = errors.New("duplicate billing event")
+
+// RecordBillingEvent stores an inbound webhook before it is processed.
+//
+// Returns ErrDuplicateBillingEvent when eventKey has been seen already, which
+// is how retries are absorbed: the unique index decides, so two concurrent
+// deliveries cannot both win.
+func (s *Store) RecordBillingEvent(ev *models.BillingEvent) error {
+	if ev.ID == "" {
+		ev.ID = uuid.NewString()
+	}
+	if ev.CreatedAt.IsZero() {
+		ev.CreatedAt = time.Now().UTC()
+	}
+
+	var eventAt interface{}
+	if ev.EventAt != nil {
+		eventAt = *ev.EventAt
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO billing_events
+			(id, user_id, provider, event_type, payload, processed,
+			 created_at, event_key, event_at, object_id)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+		ev.ID, ev.UserID, ev.Provider, ev.EventType, ev.Payload,
+		ev.CreatedAt, ev.EventKey, eventAt, ev.ObjectID,
+	)
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrDuplicateBillingEvent
+	}
+	return err
+}
+
+// GetBillingEventByKey returns a recorded event, or (nil, nil) if there is
+// none. Useful for answering "did we ever receive this delivery, and did we
+// act on it?" when reconstructing how a subscription reached its state.
+func (s *Store) GetBillingEventByKey(eventKey string) (*models.BillingEvent, error) {
+	if eventKey == "" {
+		return nil, nil
+	}
+
+	ev := &models.BillingEvent{}
+	var userID, objectID sql.NullString
+	var eventAt sql.NullTime
+
+	err := s.db.QueryRow(`
+		SELECT id, user_id, provider, event_type, payload, processed,
+		       created_at, event_key, event_at, object_id
+		FROM billing_events WHERE event_key = ?`, eventKey,
+	).Scan(
+		&ev.ID, &userID, &ev.Provider, &ev.EventType, &ev.Payload,
+		&ev.Processed, &ev.CreatedAt, &ev.EventKey, &eventAt, &objectID,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	ev.UserID = userID.String
+	ev.ObjectID = objectID.String
+	if eventAt.Valid {
+		t := eventAt.Time
+		ev.EventAt = &t
+	}
+	return ev, nil
+}
+
+// MarkBillingEventProcessed flags an event as handled and records the user it
+// resolved to, once processing has actually succeeded.
+func (s *Store) MarkBillingEventProcessed(eventKey, userID string) error {
+	_, err := s.db.Exec(
+		`UPDATE billing_events SET processed = 1, user_id = ? WHERE event_key = ?`,
+		userID, eventKey,
+	)
+	return err
+}
+
+// LatestProcessedEventAt returns the newest provider event timestamp already
+// processed for an object, and whether there was one.
+//
+// This compares provider timestamps against provider timestamps.
+// subscriptions.updated_at is our own write time, so a fast retry could beat a
+// slow original and still look newer.
+func (s *Store) LatestProcessedEventAt(provider, objectID string) (time.Time, bool, error) {
+	if objectID == "" {
+		return time.Time{}, false, nil
+	}
+	// Read the column directly rather than via MAX(): SQLite aggregates lose
+	// the column's type affinity, so the driver hands back a string that will
+	// not scan into a time.Time. ORDER BY ... LIMIT 1 also uses the index.
+	var latest time.Time
+	err := s.db.QueryRow(`
+		SELECT event_at FROM billing_events
+		WHERE provider = ? AND object_id = ? AND processed = 1
+		  AND event_at IS NOT NULL
+		ORDER BY event_at DESC
+		LIMIT 1`,
+		provider, objectID,
+	).Scan(&latest)
+	if err == sql.ErrNoRows {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return latest, true, nil
+}
+
+// DeleteOldBillingEvents prunes events past the retention window.
+func (s *Store) DeleteOldBillingEvents() (int64, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM billing_events WHERE created_at < ?`,
+		time.Now().UTC().Add(-BillingEventRetention),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // GetSubscriptionByProviderSubID looks a subscription up by the provider's own
 // subscription ID. Used to recover the local user when a webhook arrives
 // without custom_data.user_id.
@@ -734,7 +891,23 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 // Unlike GetSubscription this returns (nil, nil) when there is no row — the
 // caller needs to tell "not found" apart from "free plan".
 func (s *Store) GetSubscriptionByProviderSubID(providerSubID string) (*models.Subscription, error) {
-	if providerSubID == "" {
+	return s.subscriptionBy("provider_sub_id", providerSubID)
+}
+
+// GetSubscriptionByProviderCustomerID looks a subscription up by the provider's
+// customer ID.
+//
+// This is the reliable key for Paystack: renewals are charged against a stored
+// authorization and do not carry the transaction metadata that held our
+// user_id, but they always identify the customer.
+func (s *Store) GetSubscriptionByProviderCustomerID(customerID string) (*models.Subscription, error) {
+	return s.subscriptionBy("provider_customer_id", customerID)
+}
+
+// subscriptionBy fetches one subscription by an indexed provider column.
+// column is never caller-supplied — it comes from the two wrappers above.
+func (s *Store) subscriptionBy(column, value string) (*models.Subscription, error) {
+	if value == "" {
 		return nil, nil
 	}
 
@@ -745,7 +918,7 @@ func (s *Store) GetSubscriptionByProviderSubID(providerSubID string) (*models.Su
 		       status, current_period_end, trial_end,
 		       cancel_at_period_end, COALESCE(currency,'usd'),
 		       COALESCE(interval,'month'), created_at, updated_at
-		FROM subscriptions WHERE provider_sub_id = ?`, providerSubID,
+		FROM subscriptions WHERE `+column+` = ?`, value,
 	).Scan(
 		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
 		&sub.ProviderCustomerID, &sub.ProviderSubID,

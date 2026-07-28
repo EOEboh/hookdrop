@@ -9,13 +9,16 @@ const (
 	PlanPro  Plan = "pro"
 )
 
+// Limits is serialised straight onto /billing/subscription and /me, so the
+// json tags have to match ui/src/types/index.ts PlanLimits. Without them Go
+// emits Go field names and every lookup on the client reads undefined.
 type Limits struct {
-	MaxNamedEndpoints   int // -1 = unlimited
-	MaxRequestsPerMonth int
-	HistoryDays         int
-	MaxSecrets          int
-	HasFiltering        bool
-	HasPrioritySupport  bool
+	MaxNamedEndpoints   int  `json:"max_named_endpoints"` // -1 = unlimited
+	MaxRequestsPerMonth int  `json:"max_requests_per_month"`
+	HistoryDays         int  `json:"history_days"`
+	MaxSecrets          int  `json:"max_secrets"`
+	HasFiltering        bool `json:"has_filtering"`
+	HasPrioritySupport  bool `json:"has_priority_support"`
 }
 
 var PlanLimits = map[Plan]Limits{

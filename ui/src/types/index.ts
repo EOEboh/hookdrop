@@ -92,6 +92,7 @@ export interface PlanLimits {
   history_days: number
   max_secrets: number
   has_filtering: boolean
+  has_priority_support: boolean
 }
 
 export interface BillingState {

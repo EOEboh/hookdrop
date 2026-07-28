@@ -91,6 +91,32 @@ type Subscription struct {
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
+// BillingEvent is one inbound provider webhook, recorded before it is
+// processed. It serves two purposes: deduplicating retried deliveries, and
+// leaving an audit trail for reconstructing how a subscription reached its
+// current state.
+type BillingEvent struct {
+	ID       string
+	UserID   string
+	Provider string
+	// EventType is the provider's own event name (e.g. "subscription_created").
+	EventType string
+	Payload   string
+	// EventKey is the SHA-256 of the raw payload. Neither provider sends a
+	// unique event ID, but retries are byte-identical — they have to be, since
+	// the signature is computed over the raw body — so the hash is stable
+	// across them.
+	EventKey string
+	// EventAt is the provider's own timestamp for the event, used to reject
+	// stale deliveries. Nil when the payload carries none.
+	EventAt *time.Time
+	// ObjectID is the provider's subscription or transaction ID, scoping the
+	// ordering check to one subscription.
+	ObjectID  string
+	Processed bool
+	CreatedAt time.Time
+}
+
 // APIToken is a long-lived, revocable credential for the CLI and other
 // non-browser clients. Only the SHA-256 hash of the token is persisted.
 type APIToken struct {

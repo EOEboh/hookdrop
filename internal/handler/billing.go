@@ -1,8 +1,10 @@
 package handler
 
 import (
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -149,62 +151,175 @@ func (h *BillingHandler) GetPortal(w http.ResponseWriter, r *http.Request) {
 
 // POST /billing/webhook/lemonsqueezy
 func (h *BillingHandler) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
+	h.handleWebhook(w, r, webhookRoute{
+		provider:        "lemonsqueezy",
+		signatureHeader: "X-Signature",
+		eventNameHeader: "X-Event-Name",
+		handler:         h.LemonSqueezy,
+	})
+}
+
+// POST /billing/webhook/paystack
+func (h *BillingHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
+	h.handleWebhook(w, r, webhookRoute{
+		provider:        "paystack",
+		signatureHeader: "X-Paystack-Signature",
+		handler:         h.Paystack,
+	})
+}
+
+type webhookRoute struct {
+	provider        string
+	signatureHeader string
+	// eventNameHeader is the header carrying the provider's event name, where
+	// one exists. Empty means fall back to parsing the payload.
+	eventNameHeader string
+	handler         billing.Provider
+}
+
+// handleWebhook is the shared inbound path for both providers: verify, record,
+// deduplicate, reject stale deliveries, then process.
+func (h *BillingHandler) handleWebhook(
+	w http.ResponseWriter,
+	r *http.Request,
+	route webhookRoute,
+) {
 	// MaxBytesReader errors on an oversized body rather than silently
 	// truncating it — a truncated payload would fail signature verification
 	// and be reported as a forgery.
 	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
-		log.Printf("lemonsqueezy webhook: read error: %v", err)
+		log.Printf("%s webhook: read error: %v", route.provider, err)
 		http.Error(w, "read error", http.StatusBadRequest)
 		return
 	}
 
-	sig := r.Header.Get("X-Signature")
-	event, err := h.LemonSqueezy.HandleWebhook(payload, sig)
+	// Signature first, always. Nothing unverified is ever recorded.
+	event, err := route.handler.HandleWebhook(payload, r.Header.Get(route.signatureHeader))
 	if err != nil {
-		log.Printf("lemonsqueezy webhook error: %v", err)
+		log.Printf("%s webhook error: %v", route.provider, err)
 		http.Error(w, "invalid signature", http.StatusBadRequest)
 		return
 	}
 
+	eventType := r.Header.Get(route.eventNameHeader)
+	if eventType == "" {
+		eventType = providerEventName(payload)
+	}
+
+	// Neither provider sends a unique event ID, but retries are byte-identical
+	// (the signature is computed over the raw body), so the payload hash is a
+	// stable dedupe key for both.
+	sum := sha256.Sum256(payload)
+	eventKey := hex.EncodeToString(sum[:])
+
+	record := &models.BillingEvent{
+		Provider:  route.provider,
+		EventType: eventType,
+		Payload:   string(payload),
+		EventKey:  eventKey,
+	}
 	if event != nil {
-		if err := h.processWebhookEvent(event, "lemonsqueezy"); err != nil {
-			// Return non-2xx so Lemonsqueezy retries and the failure is visible
-			// in the dashboard's webhook log, not just ours.
-			log.Printf("process lemonsqueezy event error: %v", err)
-			http.Error(w, "processing failed", http.StatusInternalServerError)
-			return
+		record.UserID = event.UserID
+		// Scope the ordering check by subscription where there is one, else by
+		// customer — charge.success identifies only the customer.
+		record.ObjectID = event.SubscriptionID
+		if record.ObjectID == "" {
+			record.ObjectID = event.CustomerID
+		}
+		if event.EventAt > 0 {
+			t := time.Unix(event.EventAt, 0).UTC()
+			record.EventAt = &t
 		}
 	}
 
+	switch err := h.Store.RecordBillingEvent(record); {
+	case errors.Is(err, store.ErrDuplicateBillingEvent):
+		// The provider retried something we already have. 200 stops the
+		// retries; re-processing would be wasted work at best.
+		log.Printf("%s webhook: duplicate delivery %s (%s) — already recorded",
+			route.provider, eventType, eventKey[:12])
+		writeWebhookOK(w)
+		return
+	case err != nil:
+		// Failing to record means we cannot guarantee idempotency, so do not
+		// process. Non-2xx asks the provider to try again.
+		log.Printf("%s webhook: could not record event: %v", route.provider, err)
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+
+	if event == nil {
+		// Recorded for the audit trail, but not an event we act on.
+		writeWebhookOK(w)
+		return
+	}
+
+	// Out-of-order guard: a delivery older than one already applied to this
+	// subscription must not be replayed over it. Without this a retried
+	// subscription_updated landing after subscription_expired resurrects Pro.
+	if record.EventAt != nil {
+		latest, found, err := h.Store.LatestProcessedEventAt(route.provider, record.ObjectID)
+		if err != nil {
+			log.Printf("%s webhook: ordering check failed: %v", route.provider, err)
+			http.Error(w, "storage error", http.StatusInternalServerError)
+			return
+		}
+		if found && record.EventAt.Before(latest) {
+			log.Printf("%s webhook: SKIPPING stale %s for %s (event_at=%s, already applied %s)",
+				route.provider, eventType, record.ObjectID,
+				record.EventAt.Format(time.RFC3339), latest.Format(time.RFC3339))
+			// Left processed=0 on purpose: processed means "applied to the
+			// subscription", and this one deliberately was not.
+			writeWebhookOK(w)
+			return
+		}
+	} else {
+		log.Printf("%s webhook: %s carries no timestamp — no ordering protection",
+			route.provider, eventType)
+	}
+
+	if err := h.processWebhookEvent(event, route.provider); err != nil {
+		// Non-2xx so the provider retries and the failure shows up in its
+		// dashboard, not only in our logs.
+		log.Printf("process %s event error: %v", route.provider, err)
+		http.Error(w, "processing failed", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.Store.MarkBillingEventProcessed(eventKey, event.UserID); err != nil {
+		log.Printf("%s webhook: could not mark %s processed: %v",
+			route.provider, eventKey[:12], err)
+	}
+
+	writeWebhookOK(w)
+}
+
+func writeWebhookOK(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"received": "true"})
 }
 
-// POST /billing/webhook/paystack
-func (h *BillingHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
-	payload, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		http.Error(w, "read error", http.StatusBadRequest)
-		return
+// providerEventName pulls the event name out of a payload for the audit trail,
+// covering both providers' envelopes without committing to either shape.
+func providerEventName(payload []byte) string {
+	var envelope struct {
+		Event string `json:"event"` // Paystack
+		Meta  struct {
+			EventName string `json:"event_name"` // Lemon Squeezy
+		} `json:"meta"`
 	}
-
-	sig := r.Header.Get("X-Paystack-Signature")
-	event, err := h.Paystack.HandleWebhook(payload, sig)
-	if err != nil {
-		log.Printf("paystack webhook error: %v", err)
-		http.Error(w, "invalid signature", http.StatusBadRequest)
-		return
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return "unknown"
 	}
-
-	if event != nil {
-		if err := h.processWebhookEvent(event, "paystack"); err != nil {
-			log.Printf("process paystack event error: %v", err)
-		}
+	if envelope.Event != "" {
+		return envelope.Event
 	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"received": "true"})
+	if envelope.Meta.EventName != "" {
+		return envelope.Meta.EventName
+	}
+	return "unknown"
 }
 
 // processWebhookEvent now takes an explicit providerName so Provider is
@@ -221,19 +336,18 @@ func (h *BillingHandler) processWebhookEvent(
 	// stored rather than dropping the event on the floor — a dropped
 	// cancellation leaves a customer on Pro forever.
 	if userID == "" {
-		existing, err := h.Store.GetSubscriptionByProviderSubID(event.SubscriptionID)
+		existing, via, err := h.resolveWebhookUser(event)
 		if err != nil {
-			return fmt.Errorf("lookup subscription %s: %w", event.SubscriptionID, err)
+			return err
 		}
 		if existing == nil {
 			return fmt.Errorf(
-				"%s webhook %s: custom_data.user_id missing and no subscription row for provider_sub_id=%s",
-				providerName, event.Type, event.SubscriptionID)
+				"%s webhook %s: no user_id in the payload and no subscription row for sub=%s customer=%s",
+				providerName, event.Type, event.SubscriptionID, event.CustomerID)
 		}
 		userID = existing.UserID
-		log.Printf(
-			"WARNING: %s webhook %s had no custom_data.user_id — resolved user=%s via provider_sub_id=%s",
-			providerName, event.Type, userID, event.SubscriptionID)
+		log.Printf("WARNING: %s webhook %s carried no user_id — resolved user=%s via %s",
+			providerName, event.Type, userID, via)
 	}
 
 	var periodEnd *time.Time
@@ -258,9 +372,24 @@ func (h *BillingHandler) processWebhookEvent(
 		trialEnd = existing.TrialEnd
 	}
 
+	// Derive the plan from the status, not the event type. Lemon Squeezy fires
+	// subscription_expired and subscription_updated together at end of life;
+	// the updated one normalises to subscription.updated while carrying
+	// status "expired", which used to write plan=pro alongside status=canceled.
+	// IsActive also keeps past_due on Pro through its grace period.
 	plan := event.Plan
-	if event.Type == "subscription.canceled" {
+	if !billing.IsActive(event.Status, periodEnd) {
 		plan = "free"
+	}
+
+	// charge.success names no subscription, so renewals carry an empty
+	// SubscriptionID. The upsert writes every column, so passing it through
+	// would blank the stored subscription code and break cancellation.
+	providerSubID := event.SubscriptionID
+	if providerSubID == "" {
+		if existing, err := h.Store.GetSubscription(userID); err == nil {
+			providerSubID = existing.ProviderSubID
+		}
 	}
 
 	sub := &models.Subscription{
@@ -268,7 +397,7 @@ func (h *BillingHandler) processWebhookEvent(
 		Plan:               plan,
 		Provider:           providerName,
 		ProviderCustomerID: event.CustomerID,
-		ProviderSubID:      event.SubscriptionID,
+		ProviderSubID:      providerSubID,
 		Status:             event.Status,
 		CurrentPeriodEnd:   periodEnd,
 		TrialEnd:           trialEnd,
@@ -314,112 +443,102 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var result struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Status   string `json:"status"`
-			Amount   int    `json:"amount"` // 0 = trial charge
-			Customer struct {
-				CustomerCode string `json:"customer_code"`
-				Email        string `json:"email"`
-			} `json:"customer"`
-			Plan json.RawMessage `json:"plan"` // string or object
-		} `json:"data"`
+	// ── 1. The transaction must actually verify ──────────────────────────
+	// Exhausting the retries is a hard failure. Granting Pro on an
+	// unverifiable reference let any authenticated user upgrade themselves.
+	tx, err := ps.VerifyTransaction(r.Context(), body.Reference)
+	if err != nil {
+		log.Printf("VerifyPaystack: verification failed for user=%s ref=%s: %v",
+			user.ID, body.Reference, err)
+		http.Error(w, "could not verify payment", http.StatusBadGateway)
+		return
 	}
 
-	var lastErr error
-	delays := []time.Duration{0, 1 * time.Second, 2 * time.Second}
-
-	for i, delay := range delays {
-		if delay > 0 {
-			time.Sleep(delay)
-		}
-
-		req, err := http.NewRequestWithContext(
-			r.Context(), "GET",
-			"https://api.paystack.co/transaction/verify/"+body.Reference,
-			nil,
-		)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		req.Header.Set("Authorization", "Bearer "+ps.SecretKey)
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			log.Printf("VerifyPaystack: attempt %d HTTP error: %v", i+1, err)
-			lastErr = err
-			continue
-		}
-
-		decodeErr := json.NewDecoder(resp.Body).Decode(&result)
-		resp.Body.Close()
-
-		if decodeErr != nil {
-			log.Printf("VerifyPaystack: attempt %d decode error: %v", i+1, decodeErr)
-			lastErr = decodeErr
-			continue
-		}
-
-		log.Printf("VerifyPaystack: attempt %d — status=%v data.status=%s amount=%d customer=%s",
-			i+1, result.Status, result.Data.Status,
-			result.Data.Amount, result.Data.Customer.CustomerCode)
-
-		if result.Status && result.Data.Status == "success" {
-			lastErr = nil
-			break
-		}
-
-		lastErr = fmt.Errorf("paystack: status=%v data.status=%s message=%s",
-			result.Status, result.Data.Status, result.Message)
+	// ── 2. Currency ──────────────────────────────────────────────────────
+	if !strings.EqualFold(tx.Currency, "NGN") {
+		log.Printf("VerifyPaystack: rejecting non-NGN transaction user=%s ref=%s currency=%s",
+			user.ID, body.Reference, tx.Currency)
+		http.Error(w, "unsupported currency", http.StatusBadRequest)
+		return
 	}
 
-	if lastErr != nil {
-		log.Printf("VerifyPaystack: retries exhausted: %v — proceeding with upsert", lastErr)
+	// ── 3+4. The plan must be one of ours, and it decides the interval ───
+	// The client-supplied body.Interval is ignored: it drives
+	// current_period_end, so trusting it let a monthly subscriber claim a
+	// year of access.
+	interval, known := ps.IntervalForPlanCode(tx.Plan.Code)
+	if !known {
+		log.Printf("VerifyPaystack: rejecting unknown plan user=%s ref=%s plan=%q",
+			user.ID, body.Reference, tx.Plan.Code)
+		http.Error(w, "transaction is not for a hookdrop plan", http.StatusBadRequest)
+		return
+	}
+	if body.Interval != "" && body.Interval != interval {
+		log.Printf("VerifyPaystack: client claimed interval=%q, plan %s says %q — using %q",
+			body.Interval, tx.Plan.Code, interval, interval)
 	}
 
-	log.Printf("VerifyPaystack: interval=%s amount=%d is_trial=%v",
-		body.Interval, result.Data.Amount, result.Data.Amount == 0)
+	// ── 5. Amount must match the plan ────────────────────────────────────
+	//
+	// There is no zero-amount exemption: Paystack has no native free trial,
+	// so a ₦0 charge against a priced plan is never legitimate here.
+	switch {
+	case !tx.Plan.AmountKnown:
+		// Paystack returned a bare plan code with no plan object. The plan
+		// code check above already carries the weight here — attaching our
+		// plan code makes Paystack charge that plan's price — so accept, but
+		// say so.
+		log.Printf("WARNING: VerifyPaystack: plan %s amount unknown, cannot cross-check charge of %d (user=%s ref=%s)",
+			tx.Plan.Code, tx.Amount, user.ID, body.Reference)
+	case tx.Amount != tx.Plan.Amount:
+		log.Printf("VerifyPaystack: rejecting amount mismatch user=%s ref=%s charged=%d plan=%s expects=%d",
+			user.ID, body.Reference, tx.Amount, tx.Plan.Code, tx.Plan.Amount)
+		http.Error(w, "payment amount does not match the plan", http.StatusBadRequest)
+		return
+	}
+
+	// ── 6. The transaction must belong to the caller ─────────────────────
+	// Without this, any authenticated user could replay someone else's
+	// valid reference.
+	if !strings.EqualFold(
+		strings.TrimSpace(tx.Email),
+		strings.TrimSpace(user.Email),
+	) {
+		log.Printf("VerifyPaystack: REJECTED email mismatch (probable abuse) user=%s ref=%s",
+			user.ID, body.Reference)
+		http.Error(w, "this payment belongs to a different account", http.StatusForbidden)
+		return
+	}
+
+	// ── 7. A reference may not be redeemed by a second account ───────────
+	existing, err := h.Store.GetSubscriptionByProviderSubID(body.Reference)
+	if err != nil {
+		log.Printf("VerifyPaystack: replay lookup failed: %v", err)
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+	if existing != nil && existing.UserID != user.ID {
+		log.Printf("VerifyPaystack: REJECTED replayed reference (probable abuse) ref=%s owner=%s claimant=%s",
+			body.Reference, existing.UserID, user.ID)
+		http.Error(w, "this payment has already been redeemed", http.StatusConflict)
+		return
+	}
+	// Same user re-verifying is idempotent: a double submit or a retried
+	// handlePaystackSuccess must not lock a paying customer out.
+
+	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d",
+		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount)
 
 	now := time.Now().UTC()
 
-	// Detect trial: Paystack charges ₦0 for the first transaction on a plan with a trial
-	isTrial := result.Data.Amount == 0
-
-	// Set subscription status and trial_end based on whether this is a trial
+	// Paystack has no native free trial, so the customer has just been
+	// charged and is active from now. trial_end stays nil; only the Lemon
+	// Squeezy path produces trialing subscriptions.
 	subStatus := "active"
-	var trialEnd *time.Time
-	var periodEnd *time.Time
+	pe := now.Add(billing.PaystackBillingPeriod(interval))
+	periodEnd := &pe
 
-	if isTrial {
-		subStatus = "trialing"
-		// Trial is 14 days: set trial_end
-		te := now.Add(14 * 24 * time.Hour)
-		trialEnd = &te
-		// Period end is after trial ends + one billing cycle
-		var pe time.Time
-		if body.Interval == "year" {
-			pe = te.Add(365 * 24 * time.Hour)
-		} else {
-			pe = te.Add(30 * 24 * time.Hour)
-		}
-		periodEnd = &pe
-		log.Printf("VerifyPaystack: detected trial — trial_end=%s", te.Format(time.RFC3339))
-	} else {
-		// Paid charge: set period end from now
-		var pe time.Time
-		if body.Interval == "year" {
-			pe = now.Add(365 * 24 * time.Hour)
-		} else {
-			pe = now.Add(30 * 24 * time.Hour)
-		}
-		periodEnd = &pe
-		log.Printf("VerifyPaystack: detected paid charge — amount=%d", result.Data.Amount)
-	}
-
-	customerCode := result.Data.Customer.CustomerCode
+	customerCode := tx.CustomerCode
 	if customerCode == "" {
 		customerCode = "paystack_" + body.Reference
 		log.Printf("VerifyPaystack: using fallback customer code for ref=%s", body.Reference)
@@ -433,9 +552,8 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		ProviderSubID:      body.Reference,
 		Status:             subStatus,
 		CurrentPeriodEnd:   periodEnd,
-		TrialEnd:           trialEnd,
 		Currency:           "ngn",
-		Interval:           body.Interval,
+		Interval:           interval,
 		CancelAtPeriodEnd:  false,
 		CreatedAt:          now,
 	}
@@ -454,11 +572,37 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"plan":      "pro",
-		"status":    subStatus,
-		"is_trial":  isTrial,
-		"trial_end": trialEnd,
+		"plan":   "pro",
+		"status": subStatus,
+		// Retained for the client contract; Paystack never yields a trial.
+		"is_trial":  false,
+		"trial_end": nil,
 	})
+}
+
+// resolveWebhookUser finds the local user for an event whose payload carried no
+// user_id, and reports which key resolved it.
+//
+// Lemon Squeezy puts user_id in meta.custom_data on every subscription event,
+// so this is a safety net there. On Paystack it is load-bearing: renewals are
+// charged against a stored authorization and carry none of the transaction
+// metadata from the original checkout, but they always name the customer.
+func (h *BillingHandler) resolveWebhookUser(
+	event *billing.WebhookEvent,
+) (*models.Subscription, string, error) {
+	if sub, err := h.Store.GetSubscriptionByProviderSubID(event.SubscriptionID); err != nil {
+		return nil, "", fmt.Errorf("lookup by provider_sub_id %s: %w", event.SubscriptionID, err)
+	} else if sub != nil {
+		return sub, "provider_sub_id=" + event.SubscriptionID, nil
+	}
+
+	if sub, err := h.Store.GetSubscriptionByProviderCustomerID(event.CustomerID); err != nil {
+		return nil, "", fmt.Errorf("lookup by provider_customer_id %s: %w", event.CustomerID, err)
+	} else if sub != nil {
+		return sub, "provider_customer_id=" + event.CustomerID, nil
+	}
+
+	return nil, "", nil
 }
 
 // POST /billing/cancel
@@ -499,21 +643,23 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 	// Attempt to find the real subscription code via Paystack API.
 	// If it fails, we still honour the cancellation intent in our DB.
 	if sub.Provider == "paystack" {
-		ps, ok := h.Paystack.(*billing.PaystackProvider)
-		if ok {
-			subCode := h.resolvePaystackSubscriptionCode(
-				r.Context(), ps, sub.ProviderCustomerID,
-			)
-			if subCode != "" {
-				log.Printf("CancelSubscription: resolved subscription code %s for customer %s",
-					subCode, sub.ProviderCustomerID)
-				// Attempt Paystack API cancellation — non-fatal if it fails
-				if err := h.Paystack.CancelSubscription(r.Context(), subCode); err != nil {
-					log.Printf("CancelSubscription: Paystack API error (non-fatal): %v", err)
-				}
-			} else {
-				log.Printf("CancelSubscription: could not resolve subscription code — marking cancelled in DB only")
+		// provider_sub_id holds a real SUB_ code once subscription.create has
+		// been applied. Rows created before that fix hold the transaction
+		// reference instead, which Paystack cannot cancel.
+		if strings.HasPrefix(sub.ProviderSubID, "SUB_") {
+			if err := h.Paystack.CancelSubscription(r.Context(), sub.ProviderSubID); err != nil {
+				log.Printf("CancelSubscription: Paystack cancel failed for user=%s sub=%s: %v",
+					user.ID, sub.ProviderSubID, err)
+				http.Error(w, "could not cancel subscription with the payment provider",
+					http.StatusBadGateway)
+				return
 			}
+			log.Printf("CancelSubscription: Paystack subscription %s disabled", sub.ProviderSubID)
+		} else {
+			// There is nothing callable. Honour the intent locally, but say
+			// plainly that the provider was not told and is still billing.
+			log.Printf("WARNING: CancelSubscription: user=%s has no Paystack subscription code (provider_sub_id=%q) — cancelled locally only; Paystack was NOT notified and will keep billing",
+				user.ID, sub.ProviderSubID)
 		}
 	} else {
 		// LemonSqueezy — use stored sub ID directly.
@@ -550,50 +696,4 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 		"cancel_at_period_end": true,
 		"access_until":         sub.CurrentPeriodEnd,
 	})
-}
-
-// resolvePaystackSubscriptionCode looks up the active subscription code
-// for a customer because ProviderSubID may be a transaction reference.
-func (h *BillingHandler) resolvePaystackSubscriptionCode(
-	ctx context.Context,
-	ps *billing.PaystackProvider,
-	customerCode string,
-) string {
-	if customerCode == "" || strings.HasPrefix(customerCode, "paystack_") {
-		return "" // fallback customer code — can't look up
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		"https://api.paystack.co/subscription?customer="+customerCode+"&status=active",
-		nil,
-	)
-	if err != nil {
-		return ""
-	}
-	req.Header.Set("Authorization", "Bearer "+ps.SecretKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Status bool `json:"status"`
-		Data   []struct {
-			SubscriptionCode string `json:"subscription_code"`
-			Status           string `json:"status"`
-		} `json:"data"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return ""
-	}
-
-	for _, s := range result.Data {
-		if s.Status == "active" && s.SubscriptionCode != "" {
-			return s.SubscriptionCode
-		}
-	}
-	return ""
 }

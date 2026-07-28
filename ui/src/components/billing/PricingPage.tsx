@@ -35,30 +35,40 @@ const PRO_FEATURES = [
   'Signature verification',
   'Request filtering + search',
   'Priority support',
-  '14-day free trial',
 ]
 
+// The free trial is a Lemon Squeezy feature. Paystack has no native trial
+// support, so NGN customers are charged on signup — advertising a trial to
+// them would be promising something we do not deliver.
+function proFeatures(currency: 'ngn' | 'usd'): string[] {
+  return currency === 'ngn'
+    ? PRO_FEATURES
+    : [...PRO_FEATURES, '14-day free trial']
+}
+
 const PRICE_DISPLAY = {
-  month: { amount: '₦3,500', suffix: '/mo after trial' },
-  year:  { amount: '₦33,600', suffix: '/yr after trial' },
+  month: { amount: '₦3,500', suffix: '/mo' },
+  year:  { amount: '₦33,600', suffix: '/yr' },
 } as const
 
 function PaystackButton({
   interval,
   email,
+  userId,
   loading,
   setLoading,
   onSuccess,
 }: {
   interval: 'month' | 'year'
   email: string
+  userId: string
   loading: boolean
   setLoading: (v: boolean) => void
   onSuccess: (ref: string, interval: 'month' | 'year') => void
 }) {
   const posthog = usePostHog() 
   const { getPaystackConfig } = useBilling()
-  const config = getPaystackConfig(interval, email)
+  const config = getPaystackConfig(interval, email, userId)
   const initializePayment = usePaystackPayment(config)
 
   const display = PRICE_DISPLAY[interval]
@@ -92,7 +102,7 @@ function PaystackButton({
     >
       {loading
         ? 'Processing…'
-        : `Start free trial: ${display.amount} ${display.suffix}`
+        : `Subscribe — ${display.amount}${display.suffix}`
       }
     </button>
   )
@@ -116,6 +126,7 @@ export function PricingPage() {
 
   const [interval, setInterval]           = useState<'month' | 'year'>('month')
   const [payLoading, setPayLoading]        = useState(false)
+  const [payError, setPayError]            = useState<string | null>(null)
   const [showManagePanel, setShowManagePanel] = useState(false)
 
   const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
@@ -147,7 +158,18 @@ export function PricingPage() {
     reference: string,
     iv: 'month' | 'year',
   ) {
-    await handlePaystackSuccess(reference, iv)
+    setPayError(null)
+    try {
+      await handlePaystackSuccess(reference, iv)
+    } catch (err) {
+      // The card was charged but activation failed. Say so plainly rather
+      // than redirecting to a success page.
+      setPayError(
+        err instanceof Error
+          ? err.message
+          : 'Your payment went through, but we could not activate your subscription. Please contact support.',
+      )
+    }
     setPayLoading(false)
   }
 
@@ -196,7 +218,7 @@ export function PricingPage() {
             </div>
 
             <div className="space-y-2.5 pt-4 border-t border-border">
-              {PRO_FEATURES.map(f => (
+              {proFeatures(currency).map(f => (
                 <div
                   key={f}
                   className="flex items-center gap-2.5 text-sm text-ink"
@@ -349,11 +371,13 @@ export function PricingPage() {
               </div>
               {prices.total
                 ? <p className="text-muted text-xs mt-1">{prices.total}</p>
-                : <p className="text-indigo-400 text-xs mt-1">14-day free trial</p>
+                : currency !== 'ngn'
+                  ? <p className="text-indigo-400 text-xs mt-1">14-day free trial</p>
+                  : null
               }
             </div>
             <ul className="space-y-2.5">
-              {PRO_FEATURES.map(f => (
+              {proFeatures(currency).map(f => (
                 <li
                   key={f}
                   className="flex items-start gap-2.5 text-sm text-ink"
@@ -363,11 +387,20 @@ export function PricingPage() {
                 </li>
               ))}
             </ul>
+            {payError && (
+              <div
+                role="alert"
+                className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400"
+              >
+                {payError}
+              </div>
+            )}
             <div className="pt-2">
               {currency === 'ngn' ? (
                 <PaystackButton
                   interval={interval}
                   email={user?.email ?? ''}
+                  userId={user?.id ?? ''}
                   loading={payLoading}
                   setLoading={setPayLoading}
                   onSuccess={handlePaystackSuccess_}
