@@ -681,3 +681,68 @@ func TestPaystackForeignPlanChargeIgnored(t *testing.T) {
 		t.Errorf("plan = %q, want free", sub.Plan)
 	}
 }
+
+// A failed renewal must mark the subscription past_due WITHOUT blanking the
+// period — a nil period grants access indefinitely, which would disable the
+// very expiry gate this event exists to trigger.
+func TestPaystackInvoiceFailureMarksPastDueAndKeepsPeriod(t *testing.T) {
+	h, user := newPaystackWebhookHandler(t)
+
+	period := time.Now().UTC().Add(2 * 24 * time.Hour).Truncate(time.Second)
+	if err := h.Store.UpsertSubscription(&models.Subscription{
+		UserID:             user.ID,
+		Plan:               "pro",
+		Provider:           "paystack",
+		ProviderCustomerID: "CUS_fail",
+		ProviderSubID:      "SUB_keepme",
+		Status:             "active",
+		CurrentPeriodEnd:   &period,
+		Currency:           "ngn",
+		Interval:           "month",
+		CreatedAt:          time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	payload := fmt.Sprintf(`{"event":"invoice.payment_failed","data":{
+      "status":"failed","paid":false,"updatedAt":"2026-07-28T00:00:00.000Z",
+      "customer":{"customer_code":"CUS_fail"},
+      "plan":{"plan_code":%q,"amount":%d,"interval":"monthly"}}}`,
+		testPlanMonthly, monthlyKobo)
+
+	if rec := postPaystackWebhook(t, h, payload); rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Status != "past_due" {
+		t.Errorf("status = %q, want past_due", sub.Status)
+	}
+	if sub.CurrentPeriodEnd == nil {
+		t.Fatal("current_period_end was blanked — the expiry gate can no longer fire")
+	}
+	if !sub.CurrentPeriodEnd.Equal(period) {
+		t.Errorf("current_period_end = %v, want %v unchanged", sub.CurrentPeriodEnd, period)
+	}
+	if sub.ProviderSubID != "SUB_keepme" {
+		t.Errorf("provider_sub_id = %q, want SUB_keepme", sub.ProviderSubID)
+	}
+}
+
+// invoice.update reporting a successful charge is not actionable here.
+func TestPaystackInvoiceSuccessIgnored(t *testing.T) {
+	h, user := newPaystackWebhookHandler(t)
+
+	payload := fmt.Sprintf(`{"event":"invoice.update","data":{
+      "status":"success","paid":true,
+      "customer":{"customer_code":"CUS_ok"},
+      "plan":{"plan_code":%q,"amount":%d}}}`, testPlanMonthly, monthlyKobo)
+
+	if rec := postPaystackWebhook(t, h, payload); rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "free" {
+		t.Errorf("plan = %q, want free — a paid invoice must not create a subscription", sub.Plan)
+	}
+}

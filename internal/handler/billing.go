@@ -354,6 +354,13 @@ func (h *BillingHandler) processWebhookEvent(
 	if event.PeriodEnd > 0 {
 		t := time.Unix(event.PeriodEnd, 0)
 		periodEnd = &t
+	} else if existing, err := h.Store.GetSubscription(userID); err == nil {
+		// Not every event moves the period — a failed renewal reports no new
+		// date. The upsert writes every column, so passing nil would blank
+		// current_period_end, and a nil period grants access indefinitely.
+		// That would turn the expiry gate off for exactly the subscriptions it
+		// exists to catch.
+		periodEnd = existing.CurrentPeriodEnd
 	}
 
 	var trialEnd *time.Time

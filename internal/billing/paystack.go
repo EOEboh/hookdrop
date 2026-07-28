@@ -363,6 +363,62 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			UserID:    paystackMetadataUserID(charge.Metadata),
 			EventAt:   paidAt,
 		}, nil
+
+	case "invoice.payment_failed", "invoice.update":
+		// A renewal charge failed. Paystack does not retry, so this is the
+		// only notice we get that the subscription has stopped paying.
+		//
+		// This exists to make the downgrade prompt. It is NOT what guarantees
+		// correctness — IsActive expires access once the period lapses, which
+		// holds whether or not this event ever arrives or is shaped as
+		// expected. Parsed defensively for that reason: only fields present in
+		// every Paystack payload observed so far are relied on.
+		var inv struct {
+			Status   string          `json:"status"`
+			Paid     *bool           `json:"paid"`
+			Plan     json.RawMessage `json:"plan"`
+			Sub      json.RawMessage `json:"subscription"`
+			Created  string          `json:"createdAt"`
+			Updated  string          `json:"updatedAt"`
+			Customer struct {
+				CustomerCode string `json:"customer_code"`
+			} `json:"customer"`
+		}
+		if err := json.Unmarshal(event.Data, &inv); err != nil {
+			return nil, err
+		}
+
+		// invoice.update reports the final outcome, success included. Only a
+		// failure is actionable here; a success is already covered by
+		// charge.success, which carries the payment date.
+		failed := event.Event == "invoice.payment_failed" ||
+			(inv.Paid != nil && !*inv.Paid) ||
+			strings.EqualFold(inv.Status, "failed")
+		if !failed {
+			return nil, nil
+		}
+
+		planInfo, ok := ParsePaystackPlan(inv.Plan, nil)
+		if !ok {
+			return nil, nil
+		}
+		if _, ours := p.IntervalForPlanCode(planInfo.Code); !ours {
+			return nil, nil
+		}
+
+		return &WebhookEvent{
+			Type:       "subscription.updated",
+			CustomerID: inv.Customer.CustomerCode,
+			// The subscription code is nested and its shape is unconfirmed, so
+			// it is deliberately not read — processWebhookEvent preserves the
+			// stored one and the user resolves by customer code.
+			Plan:     "pro",
+			Status:   "past_due",
+			Currency: "ngn",
+			// PeriodEnd is deliberately left at zero: a failed charge moves no
+			// period, and processWebhookEvent keeps the stored value.
+			EventAt: firstParsedTime(inv.Updated, inv.Created),
+		}, nil
 	}
 	return nil, nil
 }
