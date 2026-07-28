@@ -635,3 +635,76 @@ func (p *PaystackProvider) VerifyTransaction(
 	return nil, fmt.Errorf("paystack verify %s failed after %d attempts: %w",
 		reference, len(delays), lastErr)
 }
+
+// PaystackCustomerSubscription is a subscription as reported on the customer
+// object, which is the only route from a customer *code* to a subscription.
+//
+// GET /subscription?customer= expects the numeric customer id, not the code,
+// and silently returns zero rows when given a code — which is what made the
+// old cancel path fail without complaining.
+type PaystackCustomerSubscription struct {
+	SubscriptionCode string
+	Status           string
+	NextPaymentAt    int64 // Unix; 0 when Paystack reported none
+}
+
+// LookupCustomerSubscription finds the subscription belonging to a customer
+// code. It prefers an active subscription, falling back to the most recently
+// listed one so a cancelled subscription can still be reconciled.
+func (p *PaystackProvider) LookupCustomerSubscription(
+	ctx context.Context,
+	customerCode string,
+) (*PaystackCustomerSubscription, error) {
+	if customerCode == "" {
+		return nil, fmt.Errorf("paystack: empty customer code")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		p.baseURL()+"/customer/"+url.PathEscape(customerCode), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
+
+	resp, err := p.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Status  bool   `json:"status"`
+		Message string `json:"message"`
+		Data    struct {
+			ID            int64 `json:"id"`
+			Subscriptions []struct {
+				SubscriptionCode string `json:"subscription_code"`
+				Status           string `json:"status"`
+				NextPaymentDate  string `json:"next_payment_date"`
+			} `json:"subscriptions"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if !out.Status {
+		return nil, fmt.Errorf("paystack customer %s: %s", customerCode, out.Message)
+	}
+	if len(out.Data.Subscriptions) == 0 {
+		return nil, fmt.Errorf("paystack customer %s has no subscriptions", customerCode)
+	}
+
+	chosen := out.Data.Subscriptions[0]
+	for _, s := range out.Data.Subscriptions {
+		if s.Status == "active" {
+			chosen = s
+			break
+		}
+	}
+
+	return &PaystackCustomerSubscription{
+		SubscriptionCode: chosen.SubscriptionCode,
+		Status:           normalisePaystackStatus(chosen.Status),
+		NextPaymentAt:    firstParsedTime(chosen.NextPaymentDate),
+	}, nil
+}
