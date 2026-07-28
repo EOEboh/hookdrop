@@ -8,8 +8,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-# No GOARCH flag needed — the platform declaration above handles it
-RUN CGO_ENABLED=1 GOOS=linux go build -o hookdrop ./main.go
+# Build the package, not a single file. `go build ./main.go` compiles only
+# that one file, so any other file in package main (repair.go, for example)
+# is left out and main.go fails on the symbols it defines.
+RUN CGO_ENABLED=1 GOOS=linux go build -o hookdrop .
 
 # Run stage
 FROM --platform=linux/amd64 alpine:3.21
