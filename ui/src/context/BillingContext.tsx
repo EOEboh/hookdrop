@@ -139,9 +139,12 @@ export function BillingProvider({
 
 
 
+// Display only. Paystack charges the amount on the plan, which overrides
+// whatever is passed here — so these must match the plans or the UI quotes a
+// price the customer is not charged. Source of truth is the Paystack plan.
 const PAYSTACK_PRICES = {
   month: 350000,   // ₦3,500
-  year:  3360000,  // ₦33,600
+  year:  3350000,  // ₦33,500
 } as const
 
 function getPaystackConfig(
