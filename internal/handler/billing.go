@@ -378,7 +378,7 @@ func (h *BillingHandler) processWebhookEvent(
 	// status "expired", which used to write plan=pro alongside status=canceled.
 	// IsActive also keeps past_due on Pro through its grace period.
 	plan := event.Plan
-	if !billing.IsActive(event.Status, periodEnd) {
+	if !billing.IsEntitledStatus(event.Status) {
 		plan = "free"
 	}
 
