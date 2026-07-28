@@ -27,13 +27,19 @@ jobs:
       packages: write
 
     steps:
+      # Checked out at the default branch with full history, then moved to the
+      # requested ref by git. actions/checkout's own `ref` only accepts a
+      # branch, a tag, or a *full* 40-character SHA — an abbreviated one fails
+      # with "a branch or tag with the name ... could not be found". Rollbacks
+      # are quoted as short SHAs, so resolving it here accepts all of them.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
-          # Full history: the default shallow fetch resolves `ref` as a branch
-          # or tag glob, so an arbitrary commit SHA cannot be checked out — and
-          # deploying a specific commit is exactly how a rollback is performed.
           fetch-depth: 0
+
+      - name: Check out the requested ref
+        run: |
+          git checkout --detach "${{ inputs.ref }}"
+          echo "Checked out $(git rev-parse --short HEAD) from '${{ inputs.ref }}'"
 
       - name: Record what is being deployed
         id: meta
