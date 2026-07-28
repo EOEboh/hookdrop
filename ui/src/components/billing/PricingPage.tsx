@@ -16,7 +16,7 @@ const PLANS: Record<string, Record<string, {
   },
   ngn: {
     month: { price: '₦3,500', period: '/mo', total: null },
-    year:  { price: '₦2,800', period: '/mo', total: 'Billed ₦33,600/yr' },
+    year:  { price: '₦2,792', period: '/mo', total: 'Billed ₦33,500/yr' },
   },
 }
 
@@ -48,7 +48,7 @@ function proFeatures(currency: 'ngn' | 'usd'): string[] {
 
 const PRICE_DISPLAY = {
   month: { amount: '₦3,500', suffix: '/mo' },
-  year:  { amount: '₦33,600', suffix: '/yr' },
+  year:  { amount: '₦33,500', suffix: '/yr' },
 } as const
 
 function PaystackButton({
