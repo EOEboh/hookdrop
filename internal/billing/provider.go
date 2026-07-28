@@ -46,26 +46,20 @@ type WebhookEvent struct {
 	PeriodEnd      int64 // Unix timestamp
 	TrialEnd       int64
 	CancelAtEnd    bool
+	// EventAt is the provider's own timestamp for this event, used to reject
+	// deliveries that arrive out of order. Zero when the payload carries none.
+	EventAt int64
 }
 
-// Paystack-supported countries
+// PaystackCountries are the countries Paystack can charge. Everywhere else
+// goes through Lemon Squeezy.
+//
+// Currency selection happens on the client (detectCurrency in
+// ui/src/context/BillingContext.tsx), which keeps its own timezone list
+// derived from this map — keep the two in step.
 var PaystackCountries = map[string]bool{
 	"NG": true, "GH": true, "ZA": true, "KE": true,
 	"CI": true, "RW": true, "TZ": true, "EG": true,
 	"UG": true, "CM": true, "ZM": true, "SN": true,
 	"ET": true, "MZ": true,
-}
-
-func ProviderForCurrency(currency string) string {
-	if currency == "ngn" {
-		return "paystack"
-	}
-	return "stripe"
-}
-
-func ProviderForCountry(countryCode string) string {
-	if PaystackCountries[countryCode] {
-		return "paystack"
-	}
-	return "stripe"
 }

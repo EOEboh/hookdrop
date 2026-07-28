@@ -19,6 +19,7 @@ interface BillingContextValue extends BillingState {
   getPaystackConfig: (
     interval: 'month' | 'year',
     email: string,
+    userId: string,
   ) => {
     publicKey: string
     email: string
@@ -36,19 +37,44 @@ interface BillingContextValue extends BillingState {
 
 const BillingContext = createContext<BillingContextValue | null>(null)
 
+// Timezones for the countries Paystack can actually charge. Derived from
+// PaystackCountries in internal/billing/provider.go — keep the two in step.
+//
+// Matching on 'Africa/' as a whole was wrong: Paystack serves 14 countries,
+// so a visitor in Casablanca or Algiers was being routed to a provider that
+// cannot take their money.
+const PAYSTACK_TIMEZONES = new Set([
+  'Africa/Lagos',        // NG
+  'Africa/Accra',        // GH
+  'Africa/Johannesburg', // ZA
+  'Africa/Nairobi',      // KE
+  'Africa/Abidjan',      // CI
+  'Africa/Kigali',       // RW
+  'Africa/Dar_es_Salaam',// TZ
+  'Africa/Cairo',        // EG
+  'Africa/Kampala',      // UG
+  'Africa/Douala',       // CM
+  'Africa/Lusaka',       // ZM
+  'Africa/Dakar',        // SN
+  'Africa/Addis_Ababa',  // ET
+  'Africa/Maputo',       // MZ
+])
+
+// Locales whose region is a Paystack country.
+const PAYSTACK_LOCALE_REGIONS = new Set([
+  'NG', 'GH', 'ZA', 'KE', 'CI', 'RW', 'TZ',
+  'EG', 'UG', 'CM', 'ZM', 'SN', 'ET', 'MZ',
+])
+
 function detectCurrency(): 'ngn' | 'usd' {
   const stored = localStorage.getItem('hookdrop_currency')
   if (stored === 'ngn' || stored === 'usd') return stored
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
-    const locale = navigator.language ?? ''
-    if (
-      tz.includes('Lagos') ||
-      tz.includes('Africa') ||
-      locale.startsWith('en-NG')
-    ) {
-      return 'ngn'
-    }
+    if (PAYSTACK_TIMEZONES.has(tz)) return 'ngn'
+
+    const region = (navigator.language ?? '').split('-')[1]?.toUpperCase()
+    if (region && PAYSTACK_LOCALE_REGIONS.has(region)) return 'ngn'
   } catch {
     // Intl not available — default to usd
   }
@@ -118,7 +144,11 @@ const PAYSTACK_PRICES = {
   year:  3360000,  // ₦33,600
 } as const
 
-function getPaystackConfig(interval: 'month' | 'year', email: string) {
+function getPaystackConfig(
+  interval: 'month' | 'year',
+  email: string,
+  userId: string,
+) {
   const isAnnual = interval === 'year'
 
   const planCode = isAnnual
@@ -151,6 +181,12 @@ function getPaystackConfig(interval: 'month' | 'year', email: string) {
     plan:     planCode ?? '',
     currency: 'NGN',
     label:    `hookdrop Pro — ${isAnnual ? 'Annual' : 'Monthly'}`,
+    // Carried onto the transaction so subscription webhooks can identify the
+    // local user. Renewals will not have it — those resolve by customer code.
+    metadata: {
+      user_id: userId,
+      custom_fields: [],
+    },
   }
 }
 
@@ -161,26 +197,39 @@ function getPaystackConfig(interval: 'month' | 'year', email: string) {
     // Small delay: gives Paystack time to finish processing
     await new Promise(resolve => setTimeout(resolve, 1500))
 
+    // Verification is what grants the plan — it is not advisory. If it fails
+    // the payment went through but the account was NOT upgraded, and the
+    // caller has to say so. Redirecting to ?upgraded=true regardless would
+    // leave a charged customer on the free plan with no error anywhere.
+    let result
     try {
-    const result = await api.verifyPaystackPayment({ reference, plan: 'pro', interval })
+      result = await api.verifyPaystackPayment({ reference, plan: 'pro', interval })
+    } catch (err) {
+      console.error('Paystack verification failed:', err)
+      trackEvent('checkout_verification_failed', {
+        provider: 'paystack',
+        interval,
+      })
+      await fetchSubscription()
+      throw new Error(
+        `Your payment went through, but we could not activate your subscription. ` +
+        `Nothing further will be charged. Please contact support with reference ${reference}.`,
+      )
+    }
 
-    trackEvent('checkout_completed', {                  
+    trackEvent('checkout_completed', {
       provider:  'paystack',
       interval,
       is_trial:  result.is_trial,
     })
 
     if (result.is_trial) {
-      trackEvent('trial_started', {                     
+      trackEvent('trial_started', {
         provider: 'paystack',
         interval,
       })
     }
-    } catch (err) {
-      console.error('Verify error (non-fatal):', err)
-    }
 
-    // Always refetch: upsert succeeded even if verify had issues
     await fetchSubscription()
     window.location.href = '/?upgraded=true'
   }
