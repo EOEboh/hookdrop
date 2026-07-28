@@ -31,6 +31,11 @@ const (
 
 // verifyBody builds a Paystack verify response.
 func verifyBody(status, email, planCode string, amount, planAmount int) string {
+	return verifyBodyFrom(status, email, planCode, amount, planAmount, "NG")
+}
+
+// verifyBodyFrom lets a test set the card's issuing country.
+func verifyBodyFrom(status, email, planCode string, amount, planAmount int, cardCountry string) string {
 	return fmt.Sprintf(`{
       "status": true,
       "data": {
@@ -39,11 +44,13 @@ func verifyBody(status, email, planCode string, amount, planAmount int) string {
         "amount": %d,
         "currency": "NGN",
         "reference": "T_ref",
+        "ip_address": "102.90.1.1",
+        "authorization": {"country_code": %q},
         "customer": {"customer_code": "CUS_1", "email": %q},
         "plan": %q,
         "plan_object": {"plan_code": %q, "amount": %d}
       }
-    }`, status, amount, email, planCode, planCode, planAmount)
+    }`, status, amount, cardCountry, email, planCode, planCode, planAmount)
 }
 
 // newBillingTestHandler wires a BillingHandler against a temp DB and a stubbed
@@ -744,5 +751,25 @@ func TestPaystackInvoiceSuccessIgnored(t *testing.T) {
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "free" {
 		t.Errorf("plan = %q, want free — a paid invoice must not create a subscription", sub.Plan)
+	}
+}
+
+// A foreign card on NGN pricing is recorded and flagged, never refused —
+// blocking a real customer after charging them is worse than the mispricing.
+func TestVerifyPaystack_ForeignCardOnNgnPricingIsAllowedNotBlocked(t *testing.T) {
+	h, user := newBillingTestHandler(t,
+		verifyBodyFrom("success", "buyer@example.com", testPlanMonthly, monthlyKobo, monthlyKobo, "US"))
+
+	rec := httptest.NewRecorder()
+	h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
+		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200 — a foreign card must not be refused: %s",
+			rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "pro" {
+		t.Errorf("plan = %q, want pro", sub.Plan)
 	}
 }

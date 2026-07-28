@@ -77,8 +77,17 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 	// immediately, so a future start_date only shifts the *next* debit while
 	// the customer is billed today. Sending it implied a trial that never
 	// existed.
+	// amount is required even though the plan overrides it. Without it
+	// Paystack rejects the request with "Invalid Amount Sent", which is why
+	// this path failed every time it was reached.
+	planAmount, err := p.planAmount(ctx, planCode)
+	if err != nil {
+		return nil, fmt.Errorf("paystack: could not read plan %s: %w", planCode, err)
+	}
+
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"email":        params.Email,
+		"amount":       planAmount,
 		"plan":         planCode,
 		"callback_url": params.SuccessURL,
 		"metadata": map[string]interface{}{
@@ -105,8 +114,9 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 	defer resp.Body.Close()
 
 	var result struct {
-		Status bool `json:"status"`
-		Data   struct {
+		Status  bool   `json:"status"`
+		Message string `json:"message"`
+		Data    struct {
 			AuthorizationURL string `json:"authorization_url"`
 			AccessCode       string `json:"access_code"`
 			Reference        string `json:"reference"`
@@ -116,13 +126,48 @@ func (p *PaystackProvider) CreateCheckout(ctx context.Context, params CheckoutPa
 		return nil, err
 	}
 	if !result.Status {
-		return nil, fmt.Errorf("paystack initialization failed")
+		// Paystack explains the rejection in message; reporting only
+		// "initialization failed" made this undiagnosable from the logs.
+		return nil, fmt.Errorf("paystack initialization failed: %s", result.Message)
 	}
 
 	return &CheckoutResult{
 		RedirectURL: result.Data.AuthorizationURL,
 		AccessCode:  result.Data.AccessCode,
 	}, nil
+}
+
+// planAmount reads a plan's price. transaction/initialize requires an amount
+// even when a plan supersedes it, and the plan is the source of truth for what
+// the customer is actually charged.
+func (p *PaystackProvider) planAmount(ctx context.Context, planCode string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		p.baseURL()+"/plan/"+url.PathEscape(planCode), nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.SecretKey)
+
+	resp, err := p.client().Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Status  bool   `json:"status"`
+		Message string `json:"message"`
+		Data    struct {
+			Amount int `json:"amount"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return 0, err
+	}
+	if !out.Status || out.Data.Amount <= 0 {
+		return 0, fmt.Errorf("%s", out.Message)
+	}
+	return out.Data.Amount, nil
 }
 
 // subscriptionEmailToken fetches the email_token Paystack requires to disable
@@ -533,6 +578,13 @@ type PaystackTransaction struct {
 	Email     string
 	// CustomerCode is Paystack's CUS_ identifier.
 	CustomerCode string
+	// CardCountry is the ISO country of the card used, from
+	// authorization.country_code. NGN pricing is meant for Paystack's markets,
+	// but the currency is chosen client-side, so this is the only evidence of
+	// where the payer actually is.
+	CardCountry string
+	// PayerIP is the address Paystack saw the payment come from.
+	PayerIP string
 	// Plan carries the plan code and, when Paystack told us, its amount.
 	Plan PaystackPlanInfo
 }
@@ -562,10 +614,14 @@ type paystackVerifyResponse struct {
 		Amount    int    `json:"amount"`
 		Currency  string `json:"currency"`
 		Reference string `json:"reference"`
+		IPAddress string `json:"ip_address"`
 		Customer  struct {
 			CustomerCode string `json:"customer_code"`
 			Email        string `json:"email"`
 		} `json:"customer"`
+		Authorization struct {
+			CountryCode string `json:"country_code"`
+		} `json:"authorization"`
 		Plan       json.RawMessage `json:"plan"`
 		PlanObject json.RawMessage `json:"plan_object"`
 	} `json:"data"`
@@ -684,6 +740,8 @@ func (p *PaystackProvider) VerifyTransaction(
 			Reference:    out.Data.Reference,
 			Email:        out.Data.Customer.Email,
 			CustomerCode: out.Data.Customer.CustomerCode,
+			CardCountry:  strings.ToUpper(strings.TrimSpace(out.Data.Authorization.CountryCode)),
+			PayerIP:      out.Data.IPAddress,
 			Plan:         planInfo,
 		}, nil
 	}
