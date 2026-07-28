@@ -1,0 +1,88 @@
+name: CI
+
+# Runs on every PR and on main. Until now nothing ran the Go tests — the only
+# check was Cloudflare building the UI, so a change could break billing and
+# still merge green.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  go:
+    name: Go build, vet and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # gofmt exits 0 even when files need formatting, so check the output.
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^cli/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # -count=1 defeats the test cache: a cached pass tells us nothing about
+      # the commit under test.
+      - name: Test
+        run: go test -count=1 ./...
+
+      - name: Test with the race detector
+        run: go test -count=1 -race ./internal/...
+
+  cli:
+    name: CLI build and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache: true
+          cache-dependency-path: cli/go.sum
+      - run: go build ./...
+      - run: go test -count=1 ./...
+
+  ui:
+    name: UI typecheck and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      # `tsc -b`, not `tsc --noEmit`. ui/tsconfig.json is solution-style
+      # ("files": [], references only), so --noEmit checks nothing and exits 0.
+      # That is how a type error reached the Cloudflare build.
+      - name: Build
+        run: pnpm run build
