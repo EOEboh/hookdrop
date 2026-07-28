@@ -86,3 +86,19 @@ jobs:
       # That is how a type error reached the Cloudflare build.
       - name: Build
         run: pnpm run build
+
+  docker:
+    name: Production image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `go build ./...` is not enough to prove this repo deploys. The
+      # Dockerfile compiles the package that produces the release binary, and
+      # a mistake there (it once built ./main.go, silently excluding every
+      # other file in package main) only shows up here.
+      - name: Build the image the deploy uses
+        run: docker build -t hookdrop:ci .
+
+      - name: Binary starts and reports its flags
+        run: docker run --rm --entrypoint sh hookdrop:ci -c './hookdrop -h' 2>&1 | head -20
