@@ -64,7 +64,7 @@ export function Sidebar({
       </div>
       
 
-      {/* Tabs — hidden on mobile where MobileTabBar takes over this role */}
+      {/* Tabs. Hidden on mobile where MobileTabBar takes over this role */}
       <div className={`${hideTabSwitcher ? 'hidden lg:flex' : 'flex'} border-b border-border`}>
         {(['session', 'endpoints'] as Tab[]).map(t => (
           <button

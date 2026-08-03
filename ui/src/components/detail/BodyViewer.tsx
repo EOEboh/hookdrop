@@ -1,8 +1,8 @@
 import { safeParseBody, tryPrettyPrint, tokenizeJson, type JsonTokenType } from '../../lib/json'
 import { CopyButton } from '../ui/CopyButton'
 
-// Understated syntax colours tuned to the warm indigo/violet palette —
-// distinct roles, not a generic green-on-black terminal.
+// Understated syntax colours tuned to the warm indigo/violet palette.
+// Distinct roles, not a generic green-on-black terminal.
 const TOKEN_CLASS: Record<JsonTokenType, string> = {
   key:         'text-indigo-300',
   string:      'text-emerald-300',
@@ -40,7 +40,7 @@ export function BodyViewer({ body }: { body: string }) {
 
   return (
     <div className="relative group">
-      {/* Copy button — appears on hover, tucked in corner */}
+      {/* Copy button. Appears on hover, tucked in corner */}
       <div className="absolute top-3 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-(--ease-considered) z-10">
         <CopyButton text={pretty} label="Copy" />
       </div>

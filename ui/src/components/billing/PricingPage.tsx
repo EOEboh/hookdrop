@@ -38,7 +38,7 @@ const PRO_FEATURES = [
 ]
 
 // The free trial is a Lemon Squeezy feature. Paystack has no native trial
-// support, so NGN customers are charged on signup — advertising a trial to
+// support, so NGN customers are charged on signup. Advertising a trial to
 // them would be promising something we do not deliver.
 function proFeatures(currency: 'ngn' | 'usd'): string[] {
   return currency === 'ngn'
@@ -105,8 +105,8 @@ function PaystackButton({
       {loading
         ? 'Processing…'
         : label
-          ? `${label} — ${display.amount}${display.suffix}`
-          : `Subscribe — ${display.amount}${display.suffix}`
+          ? `${label} for ${display.amount}${display.suffix}`
+          : `Subscribe for ${display.amount}${display.suffix}`
       }
     </button>
   )
@@ -135,7 +135,7 @@ export function PricingPage() {
 
   const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
 
-  // ── Loading guard — prevents flash of free view for Pro users
+  // ── Loading guard. Prevents flash of free view for Pro users
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -182,7 +182,7 @@ export function PricingPage() {
   const willNotRenew =
     subscription?.auto_renews === false && !subscription?.cancel_at_period_end
 
-  // ── Renewal date label — aware of cancellation, trial and one-off states
+  // ── Renewal date label. Aware of cancellation, trial and one-off states
   function renewalLabel(): string {
     if (!subscription?.current_period_end) return 'monthly'
     const date = new Date(subscription.current_period_end).toLocaleDateString(
@@ -206,8 +206,9 @@ export function PricingPage() {
   if (isPro) {
     return (
       <div className="max-w-lg mx-auto px-6 py-16 space-y-8">
-        {/* Gradient-border shell — 1px indigo blend + soft glow, not a heavy card */}
-        <div className="rounded-xl bg-gradient-to-br from-indigo-500/40 via-indigo-500/10 to-transparent p-px shadow-[0_0_44px_-16px_rgba(20,184,166,0.45)]">
+        {/* 1px gradient border carries the emphasis; the shadow is neutral
+            elevation, not a coloured glow. */}
+        <div className="rounded-xl bg-gradient-to-br from-indigo-500/30 via-indigo-500/10 to-transparent p-px shadow-md shadow-black/20">
           <div className="rounded-[11px] bg-surface p-8 space-y-6">
 
             <div className="flex items-start justify-between">
@@ -242,10 +243,10 @@ export function PricingPage() {
             {willNotRenew && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3 space-y-2">
                 <p className="text-xs text-amber-300">
-                  This payment covered a single period and will not renew
-                  automatically — the method you paid with cannot be charged
-                  again. Renew below to extend your access; the new period is
-                  added to the time you have left.
+                  This payment covered a single period. The method you paid
+                  with cannot be charged again, so it will not renew
+                  automatically. Renewing adds a new period to whatever time
+                  you have left.
                 </p>
                 <PaystackButton
                   interval={subscription?.interval === 'year' ? 'year' : 'month'}
@@ -392,8 +393,9 @@ export function PricingPage() {
           </div>
         </div>
 
-        {/* Pro card — gradient border + soft glow gives it real visual weight */}
-        <div className="relative rounded-xl bg-gradient-to-br from-indigo-500/50 via-indigo-500/15 to-transparent p-px shadow-[0_0_50px_-18px_rgba(20,184,166,0.55)]">
+        {/* Pro card: the gradient border and the badge distinguish it. A
+            coloured glow read as decoration rather than hierarchy. */}
+        <div className="relative rounded-xl bg-gradient-to-br from-indigo-500/40 via-indigo-500/15 to-transparent p-px shadow-md shadow-black/20">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
             <span className="bg-indigo-500 text-white text-[11px] font-semibold px-3 py-1 rounded-full">
               Most popular

@@ -158,12 +158,12 @@ func TestVerifyPaystack_RejectsUnverifiableTransaction(t *testing.T) {
 				`{"reference":"T_fake","plan":"pro","interval":"month"}`))
 
 			if rec.Code == http.StatusOK {
-				t.Fatalf("got 200 — unverified transaction granted Pro")
+				t.Fatalf("got 200. Unverified transaction granted Pro")
 			}
 
 			sub, _ := h.Store.GetSubscription(user.ID)
 			if sub.Plan != "free" {
-				t.Errorf("plan = %q, want free — nothing may be written on a failed verify", sub.Plan)
+				t.Errorf("plan = %q, want free. Nothing may be written on a failed verify", sub.Plan)
 			}
 		})
 	}
@@ -197,7 +197,7 @@ func TestVerifyPaystack_EmailComparisonIsForgiving(t *testing.T) {
 		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("got %d, want 200 — a case/whitespace difference locked out a real customer: %s",
+		t.Fatalf("got %d, want 200. A case/whitespace difference locked out a real customer: %s",
 			rec.Code, rec.Body.String())
 	}
 }
@@ -241,7 +241,7 @@ func TestVerifyPaystack_RejectsReplayByAnotherUser(t *testing.T) {
 		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
 
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("got %d, want 409 — a redeemed reference was accepted again: %s",
+		t.Fatalf("got %d, want 409. A redeemed reference was accepted again: %s",
 			rec.Code, rec.Body.String())
 	}
 
@@ -252,7 +252,7 @@ func TestVerifyPaystack_RejectsReplayByAnotherUser(t *testing.T) {
 	// The rightful owner keeps their subscription.
 	ownerSub, _ := h.Store.GetSubscription(owner.ID)
 	if ownerSub.Plan != "pro" {
-		t.Errorf("owner plan = %q, want pro — the replay must not disturb them", ownerSub.Plan)
+		t.Errorf("owner plan = %q, want pro. The replay must not disturb them", ownerSub.Plan)
 	}
 }
 
@@ -303,7 +303,7 @@ func TestVerifyPaystack_RejectsAmountBelowPlanPrice(t *testing.T) {
 }
 
 // Paystack has no native free trial, so a ₦0 charge against a priced plan is
-// never legitimate — it used to be treated as a trial and granted Pro.
+// never legitimate. It used to be treated as a trial and granted Pro.
 func TestVerifyPaystack_RejectsZeroAmountCharge(t *testing.T) {
 	h, user := newBillingTestHandler(t,
 		verifyBody("success", "buyer@example.com", testPlanMonthly, 0, monthlyKobo))
@@ -350,7 +350,7 @@ func TestVerifyPaystack_NeverProducesATrial(t *testing.T) {
 
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.TrialEnd != nil {
-		t.Errorf("stored trial_end = %v, want nil — Paystack grants no trial", sub.TrialEnd)
+		t.Errorf("stored trial_end = %v, want nil. Paystack grants no trial", sub.TrialEnd)
 	}
 	if sub.Status != "active" {
 		t.Errorf("stored status = %q, want active", sub.Status)
@@ -372,7 +372,7 @@ func TestVerifyPaystack_IgnoresClientSuppliedInterval(t *testing.T) {
 
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Interval != "month" {
-		t.Errorf("interval = %q, want month — the client's claim was trusted", sub.Interval)
+		t.Errorf("interval = %q, want month. The client's claim was trusted", sub.Interval)
 	}
 	// A month's access, not a year's.
 	if sub.CurrentPeriodEnd == nil {
@@ -519,7 +519,7 @@ func TestWebhook_StaleDeliveryDoesNotResurrectPro(t *testing.T) {
 
 	sub, _ = h.Store.GetSubscription(user.ID)
 	if sub.Plan != "free" {
-		t.Errorf("plan = %q, want free — a stale delivery resurrected Pro", sub.Plan)
+		t.Errorf("plan = %q, want free. A stale delivery resurrected Pro", sub.Plan)
 	}
 	if sub.Status != "canceled" {
 		t.Errorf("status = %q, want canceled", sub.Status)
@@ -537,7 +537,7 @@ func TestWebhook_ExpiredStatusDropsPlanToFree(t *testing.T) {
 
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "free" {
-		t.Errorf("plan = %q, want free — subscription_updated carrying status=expired left the row inconsistent", sub.Plan)
+		t.Errorf("plan = %q, want free, subscription_updated carrying status=expired left the row inconsistent", sub.Plan)
 	}
 }
 
@@ -586,7 +586,7 @@ func TestWebhook_IgnoredEventRecordedButNotApplied(t *testing.T) {
 
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "free" {
-		t.Errorf("plan = %q, want free — order_created must not touch the subscription", sub.Plan)
+		t.Errorf("plan = %q, want free, order_created must not touch the subscription", sub.Plan)
 	}
 }
 
@@ -658,7 +658,7 @@ func TestPaystackRenewalAdvancesPeriodWithoutLosingSubID(t *testing.T) {
 
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.ProviderSubID != "SUB_original" {
-		t.Errorf("provider_sub_id = %q, want SUB_original — the renewal blanked it", sub.ProviderSubID)
+		t.Errorf("provider_sub_id = %q, want SUB_original. The renewal blanked it", sub.ProviderSubID)
 	}
 	if sub.Plan != "pro" || sub.Status != "active" {
 		t.Errorf("plan/status = %s/%s, want pro/active", sub.Plan, sub.Status)
@@ -682,7 +682,7 @@ func TestPaystackChargeWithoutPlanIsIgnored(t *testing.T) {
 	}
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "free" {
-		t.Errorf("plan = %q, want free — a plan-less charge granted Pro", sub.Plan)
+		t.Errorf("plan = %q, want free. A plan-less charge granted Pro", sub.Plan)
 	}
 }
 
@@ -706,7 +706,7 @@ func TestPaystackForeignPlanChargeIgnored(t *testing.T) {
 }
 
 // A failed renewal must mark the subscription past_due WITHOUT blanking the
-// period — a nil period grants access indefinitely, which would disable the
+// period. A nil period grants access indefinitely, which would disable the
 // very expiry gate this event exists to trigger.
 func TestPaystackInvoiceFailureMarksPastDueAndKeepsPeriod(t *testing.T) {
 	h, user := newPaystackWebhookHandler(t)
@@ -742,7 +742,7 @@ func TestPaystackInvoiceFailureMarksPastDueAndKeepsPeriod(t *testing.T) {
 		t.Errorf("status = %q, want past_due", sub.Status)
 	}
 	if sub.CurrentPeriodEnd == nil {
-		t.Fatal("current_period_end was blanked — the expiry gate can no longer fire")
+		t.Fatal("current_period_end was blanked. The expiry gate can no longer fire")
 	}
 	if !sub.CurrentPeriodEnd.Equal(period) {
 		t.Errorf("current_period_end = %v, want %v unchanged", sub.CurrentPeriodEnd, period)
@@ -766,12 +766,12 @@ func TestPaystackInvoiceSuccessIgnored(t *testing.T) {
 	}
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "free" {
-		t.Errorf("plan = %q, want free — a paid invoice must not create a subscription", sub.Plan)
+		t.Errorf("plan = %q, want free. A paid invoice must not create a subscription", sub.Plan)
 	}
 }
 
-// A foreign card on NGN pricing is recorded and flagged, never refused —
-// blocking a real customer after charging them is worse than the mispricing.
+// A foreign card on NGN pricing is recorded and flagged, never refused.
+// Blocking a real customer after charging them is worse than the mispricing.
 func TestVerifyPaystack_ForeignCardOnNgnPricingIsAllowedNotBlocked(t *testing.T) {
 	h, user := newBillingTestHandler(t,
 		verifyBodyFrom("success", "buyer@example.com", testPlanMonthly, monthlyKobo, monthlyKobo, "US"))
@@ -781,7 +781,7 @@ func TestVerifyPaystack_ForeignCardOnNgnPricingIsAllowedNotBlocked(t *testing.T)
 		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("got %d, want 200 — a foreign card must not be refused: %s",
+		t.Fatalf("got %d, want 200. A foreign card must not be refused: %s",
 			rec.Code, rec.Body.String())
 	}
 	sub, _ := h.Store.GetSubscription(user.ID)
@@ -802,14 +802,14 @@ func TestVerifyPaystack_NonReusablePaymentIsGrantedButNotRecurring(t *testing.T)
 		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("got %d, want 200 — they paid, they get the period: %s", rec.Code, rec.Body.String())
+		t.Fatalf("got %d, want 200. They paid, they get the period: %s", rec.Code, rec.Body.String())
 	}
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "pro" || sub.Status != "active" {
 		t.Errorf("plan/status = %s/%s, want pro/active", sub.Plan, sub.Status)
 	}
 	if sub.AutoRenews {
-		t.Error("auto_renews = true for a bank transfer — it cannot be charged again")
+		t.Error("auto_renews = true for a bank transfer. It cannot be charged again")
 	}
 }
 
@@ -862,7 +862,7 @@ func TestPaystackWebhookPreservesAutoRenews(t *testing.T) {
 	}
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.AutoRenews {
-		t.Error("a webhook flipped auto_renews to true — it cannot see the authorization")
+		t.Error("a webhook flipped auto_renews to true. It cannot see the authorization")
 	}
 }
 
@@ -890,14 +890,14 @@ func TestVerifyPaystack_ReplayingAReferenceDoesNotApplyTwice(t *testing.T) {
 
 	for i := 2; i <= 4; i++ {
 		if rec := post(); rec.Code != http.StatusOK {
-			t.Fatalf("attempt %d: got %d, want 200 — a retry must not lock the customer out: %s",
+			t.Fatalf("attempt %d: got %d, want 200. A retry must not lock the customer out: %s",
 				i, rec.Code, rec.Body.String())
 		}
 	}
 
 	after, _ := h.Store.GetSubscription(user.ID)
 	if !after.CurrentPeriodEnd.Equal(firstEnd) {
-		t.Errorf("current_period_end moved from %v to %v — replaying a reference granted extra time",
+		t.Errorf("current_period_end moved from %v to %v. Replaying a reference granted extra time",
 			firstEnd, after.CurrentPeriodEnd)
 	}
 }
@@ -938,7 +938,7 @@ func TestVerifyPaystack_RenewalExtendsFromTheCurrentExpiry(t *testing.T) {
 	}
 }
 
-// An expired period must not be carried forward — that would backdate the
+// An expired period must not be carried forward. That would backdate the
 // renewal to a date already gone.
 func TestVerifyPaystack_RenewalAfterExpiryStartsFromNow(t *testing.T) {
 	h, user := newBillingTestHandler(t,

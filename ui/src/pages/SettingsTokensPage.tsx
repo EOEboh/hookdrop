@@ -110,7 +110,7 @@ export function SettingsTokensPage() {
       {newToken && (
         <div className="border border-emerald-500/30 bg-emerald-500/5 rounded-lg p-4 space-y-2">
           <p className="text-sm text-emerald-400 font-medium">
-            Token created — copy it now, you won't see it again
+            Token created. Copy it now, you won't see it again
           </p>
           <div className="flex items-center gap-2">
             <code className="text-xs bg-surface px-2 py-1.5 rounded font-mono break-all flex-1">

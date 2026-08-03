@@ -3,7 +3,7 @@ package api
 import "time"
 
 // Wire types mirroring the backend's JSON responses. Source of truth:
-// internal/models/request.go in the backend module — keep field names and
+// internal/models/request.go in the backend module. Keep field names and
 // JSON tags in sync (internal/ packages can't be imported across modules).
 
 // CapturedRequest is one webhook as delivered over SSE and /requests.

@@ -1,5 +1,5 @@
 // Package config manages the CLI's local configuration file, which holds
-// the API token — permissions are locked down and writes are atomic.
+// the API token. Permissions are locked down and writes are atomic.
 package config
 
 import (
@@ -50,12 +50,12 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		// fresh install — fall through to defaults
+		// fresh install. Fall through to defaults
 	case err != nil:
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	default:
 		if jsonErr := json.Unmarshal(data, cfg); jsonErr != nil {
-			return nil, fmt.Errorf("config file %s is corrupt (%v) — run 'hookdrop login' to recreate it", path, jsonErr)
+			return nil, fmt.Errorf("config file %s is corrupt (%v). Run 'hookdrop login' to recreate it", path, jsonErr)
 		}
 		warnLoosePermissions(path)
 	}
@@ -123,7 +123,7 @@ func warnLoosePermissions(path string) {
 	}
 	if info.Mode().Perm()&0o077 != 0 {
 		fmt.Fprintf(os.Stderr,
-			"warning: %s is readable by other users (mode %o) — consider: chmod 600 %s\n",
+			"warning: %s is readable by other users (mode %o). Consider: chmod 600 %s\n",
 			path, info.Mode().Perm(), path)
 	}
 }

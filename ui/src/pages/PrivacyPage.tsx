@@ -32,7 +32,7 @@ export function PrivacyPage() {
               analytics to improve the product.
             </p>
             <p>
-              We do not collect payment card details — payments are processed
+              We do not collect payment card details. Payments are processed
               directly by Paystack (Nigerian and African users) or Lemon Squeezy
               (international users). We never see your card number.
             </p>
@@ -44,7 +44,7 @@ export function PrivacyPage() {
             </h2>
             <p>
               Webhook payloads you receive through hookdrop may contain personal
-              data belonging to your customers — for example, names, email
+              data belonging to your customers. For example, names, email
               addresses, or payment amounts included in Stripe or Paystack
               webhook events.
             </p>

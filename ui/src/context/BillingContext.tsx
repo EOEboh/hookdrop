@@ -38,7 +38,7 @@ interface BillingContextValue extends BillingState {
 const BillingContext = createContext<BillingContextValue | null>(null)
 
 // Timezones for the countries Paystack can actually charge. Derived from
-// PaystackCountries in internal/billing/provider.go — keep the two in step.
+// PaystackCountries in internal/billing/provider.go. Keep the two in step.
 //
 // Matching on 'Africa/' as a whole was wrong: Paystack serves 14 countries,
 // so a visitor in Casablanca or Algiers was being routed to a provider that
@@ -76,7 +76,7 @@ function detectCurrency(): 'ngn' | 'usd' {
     const region = (navigator.language ?? '').split('-')[1]?.toUpperCase()
     if (region && PAYSTACK_LOCALE_REGIONS.has(region)) return 'ngn'
   } catch {
-    // Intl not available — default to usd
+    // Intl not available. Default to usd
   }
   return 'usd'
 }
@@ -143,7 +143,7 @@ export function BillingProvider({
 //   PLN_xja5qfa3bsw1npb  monthly  350000
 //   PLN_pqaarazyxu6np2o  annual  3360000
 // The test-mode plans are priced differently (annual is 3350000 there), so
-// read the live plans when checking these — not whatever the test keys show.
+// read the live plans when checking these. Not whatever the test keys show.
 const PAYSTACK_PRICES = {
   month: 350000,   // ₦3,500
   year:  3360000,  // ₦33,600
@@ -185,9 +185,9 @@ function getPaystackConfig(
     amount,
     plan:     planCode ?? '',
     currency: 'NGN',
-    label:    `hookdrop Pro — ${isAnnual ? 'Annual' : 'Monthly'}`,
+    label:    `hookdrop Pro ${isAnnual ? 'Annual' : 'Monthly'}`,
     // Carried onto the transaction so subscription webhooks can identify the
-    // local user. Renewals will not have it — those resolve by customer code.
+    // local user. Renewals will not have it. Those resolve by customer code.
     metadata: {
       user_id: userId,
       custom_fields: [],
@@ -202,7 +202,7 @@ function getPaystackConfig(
     // Small delay: gives Paystack time to finish processing
     await new Promise(resolve => setTimeout(resolve, 1500))
 
-    // Verification is what grants the plan — it is not advisory. If it fails
+    // Verification is what grants the plan. It is not advisory. If it fails
     // the payment went through but the account was NOT upgraded, and the
     // caller has to say so. Redirecting to ?upgraded=true regardless would
     // leave a charged customer on the free plan with no error anywhere.

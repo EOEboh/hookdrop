@@ -88,7 +88,7 @@ func main() {
 		"LEMONSQUEEZY_VARIANT_PRO_ANNUAL":  lsVariantAnnual,
 	})
 	if lsTestMode {
-		log.Printf("billing: LEMONSQUEEZY_TEST_MODE=true — checkouts are test mode, no real charges")
+		log.Printf("billing: LEMONSQUEEZY_TEST_MODE=true. Checkouts are test mode, no real charges")
 	}
 
 	// ── Paystack config (African users)
@@ -178,7 +178,7 @@ func main() {
 	mux.Handle("/health", healthHandler)
 
 	authRateLimit := middleware.AuthIPRateLimit(authIPLimiter)
-	// Auth — public
+	// Auth. Public
 	mux.HandleFunc("/auth/request", authRateLimit(authHandler.RequestLink))
 	mux.HandleFunc("/auth/verify", authHandler.VerifyLink)
 
@@ -189,7 +189,7 @@ func main() {
 	mux.Handle("/billing/verify-paystack",
 		requireAuth(http.HandlerFunc(billingHandler.VerifyPaystack)))
 
-	// Billing — authenticated
+	// Billing. Authenticated
 	mux.Handle("/billing/subscription",
 		requireAuth(http.HandlerFunc(billingHandler.GetSubscription)))
 	mux.Handle("/billing/checkout",
@@ -199,20 +199,20 @@ func main() {
 	mux.Handle("/billing/cancel",
 		requireAuth(http.HandlerFunc(billingHandler.CancelSubscription)))
 
-	// Account + API tokens — authenticated (token management is JWT-only,
+	// Account + API tokens. Authenticated (token management is JWT-only,
 	// enforced inside TokensHandler)
 	mux.Handle("/me", requireAuth(&handler.MeHandler{Store: st}))
 	mux.Handle("/tokens", requireAuth(&handler.TokensHandler{Store: st, MintLimiter: tokenMintLimiter}))
 	mux.Handle("/tokens/", requireAuth(&handler.TokensHandler{Store: st, MintLimiter: tokenMintLimiter}))
 
-	// Core — authenticated
+	// Core. Authenticated
 	mux.Handle("/sessions", requireAuth(&handler.SessionHandler{Manager: mgr}))
 	mux.Handle("/requests/", requireAuth(&handler.RequestsHandler{Store: st}))
 	mux.Handle("/replay", requireAuth(&handler.ReplayHandler{Store: st, Engine: replayEngine}))
 	mux.Handle("/events/", requireAuth(&handler.SSEHandler{Broadcaster: broadcaster, Store: st}))
 	mux.Handle("/endpoints", requireAuth(&handler.EndpointsHandler{Store: st}))
 
-	// Endpoints + secrets — authenticated, routed by path shape
+	// Endpoints + secrets. Authenticated, routed by path shape
 	mux.Handle("/endpoints/", requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/secrets") {
 			secretsHandler.ServeHTTP(w, r)
@@ -221,7 +221,7 @@ func main() {
 		}
 	})))
 
-	// Inbox — public but rate limited
+	// Inbox. Public but rate limited
 	mux.Handle("/i/", inboxLimiter(&handler.InboxHandler{
 		Store:     st,
 		Broadcast: broadcaster.Broadcast,

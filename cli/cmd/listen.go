@@ -46,7 +46,7 @@ var listenCmd = &cobra.Command{
 	Short: "Stream webhooks live into your terminal (and forward them locally)",
 	Long: `Streams every webhook hitting your hookdrop endpoint into the terminal,
 one line per event. With -f/--forward, each webhook is also re-sent to a local
-server — the way the web UI's replay works — so your dev server receives traffic
+server. The way the web UI's replay works, so your dev server receives traffic
 the hosted backend can't deliver directly.
 
 The endpoint is optional: with one named endpoint it's picked automatically,
@@ -169,7 +169,7 @@ func resolveEndpoint(ctx context.Context, client *api.Client, explicit, frontend
 			for _, e := range endpoints {
 				slugs = append(slugs, e.Slug)
 			}
-			return "", fmt.Errorf("multiple endpoints (%s) — specify one: hookdrop listen <slug>", strings.Join(slugs, ", "))
+			return "", fmt.Errorf("multiple endpoints (%s). Specify one: hookdrop listen <slug>", strings.Join(slugs, ", "))
 		}
 		return pickEndpoint(endpoints)
 	}
@@ -229,7 +229,7 @@ func runListen(ctx context.Context, apiURL, token, endpoint, forwardURL string) 
 				}
 				printer.Line(printer.Event(&req, forwarding))
 				if forwarding && !fwd.Enqueue(&req) {
-					printer.Line(printer.Status("⚠ forward queue full — dropped " + output.ShortID(req.ID) + " (still visible in the dashboard)"))
+					printer.Line(printer.Status("⚠ forward queue full. Dropped " + output.ShortID(req.ID) + " (still visible in the dashboard)"))
 				}
 			}
 		}
@@ -251,7 +251,7 @@ func runListen(ctx context.Context, apiURL, token, endpoint, forwardURL string) 
 			printer.Line(printer.Status("stopped"))
 			return nil
 		case errors.Is(err, api.ErrUnauthorized):
-			return errors.New("your session is no longer valid — the token may have been revoked. Run 'hookdrop login' again")
+			return errors.New("your session is no longer valid. The token may have been revoked. Run 'hookdrop login' again")
 		case errors.Is(err, api.ErrNotFound):
 			return fmt.Errorf("endpoint %q not found on your account (it may have expired if it was a temporary session). Run 'hookdrop endpoints' to see yours", endpoint)
 		case errors.Is(err, api.ErrPaymentRequired):
@@ -264,7 +264,7 @@ func runListen(ctx context.Context, apiURL, token, endpoint, forwardURL string) 
 		}
 		attempt++
 		jittered := delay + time.Duration(rand.Int63n(int64(delay/2+1)))
-		printer.Line(printer.Status(fmt.Sprintf("⟳ connection lost (%v) — reconnecting in %s (attempt %d)", err, jittered.Round(time.Second), attempt)))
+		printer.Line(printer.Status(fmt.Sprintf("⟳ connection lost (%v). Reconnecting in %s (attempt %d)", err, jittered.Round(time.Second), attempt)))
 
 		select {
 		case <-time.After(jittered):

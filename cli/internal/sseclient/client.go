@@ -1,6 +1,6 @@
 // Package sseclient is a minimal Server-Sent Events client for the hookdrop
 // /events stream. The format is three line types: "event:", "data:", and
-// ":" comments (keepalives) — no library needed.
+// ":" comments (keepalives). No library needed.
 package sseclient
 
 import (
@@ -41,7 +41,7 @@ func New(baseURL, token string) *Client {
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		Token:   token,
-		// No overall client timeout — the stream is long-lived. Individual
+		// No overall client timeout. The stream is long-lived. Individual
 		// phases are bounded instead; mid-stream silence is the watchdog's job.
 		http: &http.Client{
 			Transport: &http.Transport{
@@ -111,7 +111,7 @@ func (c *Client) Stream(ctx context.Context, identifier string, events chan<- Ev
 				}
 			}
 		case line[0] == ':':
-			// comment/keepalive — watchdog already reset
+			// comment/keepalive. Watchdog already reset
 		case bytes.HasPrefix(line, []byte("event:")):
 			eventName = string(bytes.TrimSpace(line[len("event:"):]))
 		case bytes.HasPrefix(line, []byte("data:")):
@@ -123,7 +123,7 @@ func (c *Client) Stream(ctx context.Context, identifier string, events chan<- Ev
 	}
 
 	if watchdogFired.Load() {
-		return fmt.Errorf("no data for %s — connection stale", watchdogTimeout)
+		return fmt.Errorf("no data for %s. Connection stale", watchdogTimeout)
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()

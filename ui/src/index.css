@@ -5,7 +5,7 @@
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
 
-  /* Cool neutral scale — replaces zinc */
+  /* Cool neutral scale. Replaces zinc */
   --color-base:          #0d0f0f;
   --color-base-alt:       #121514;
   --color-surface:        #181b1a;
@@ -16,11 +16,11 @@
   --color-muted:          #9aa5a2;
   --color-faint:          #62726c;
 
-  /* Brand mark gradient — teal signal, same-hue-family (not cross-hue) */
+  /* Brand mark gradient. Teal signal, same-hue-family (not cross-hue) */
   --color-brand:          #2dd4bf;
   --color-brand-2:        #0d9488;
 
-  /* Retune Tailwind's built-in indigo scale to the same teal family —
+  /* Retune Tailwind's built-in indigo scale to the same teal family.
      every indigo-* utility class used across the app cascades from here */
   --color-indigo-100: #ccfbf1;
   --color-indigo-300: #5eead4;

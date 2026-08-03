@@ -54,7 +54,7 @@ func (h *TokensHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request, userID string) {
 	if h.MintLimiter != nil && !h.MintLimiter.Allow(userID) {
 		w.Header().Set("Retry-After", "3600")
-		http.Error(w, "too many tokens created — try again later", http.StatusTooManyRequests)
+		http.Error(w, "too many tokens created. Try again later", http.StatusTooManyRequests)
 		return
 	}
 

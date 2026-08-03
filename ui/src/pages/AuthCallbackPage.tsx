@@ -30,7 +30,7 @@ export function AuthCallbackPage() {
         window.location.replace('/')
       }
     } else {
-      // No token in the URL — something went wrong
+      // No token in the URL. Something went wrong
       // Redirect to login with an error hint
       window.location.replace('/?error=invalid_link')
     }

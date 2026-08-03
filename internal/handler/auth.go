@@ -22,7 +22,7 @@ type AuthHandler struct {
 	EmailLimiter *middleware.EmailRateLimiter
 }
 
-// POST /auth/request — send a magic link
+// POST /auth/request. Send a magic link
 func (h *AuthHandler) RequestLink(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -82,7 +82,7 @@ func (h *AuthHandler) RequestLink(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /auth/verify?token=xxx — verify token, return JWT
+// GET /auth/verify?token=xxx. Verify token, return JWT
 func (h *AuthHandler) VerifyLink(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {

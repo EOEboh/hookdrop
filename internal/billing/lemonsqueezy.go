@@ -116,7 +116,7 @@ func (p *LemonSqueezyProvider) CreateCheckout(
 
 	// Lemonsqueezy uses JSON:API format.
 	//
-	// store_id and variant_id are READ-ONLY response attributes — the only
+	// store_id and variant_id are READ-ONLY response attributes. The only
 	// attributes accepted on create are custom_price, product_options,
 	// checkout_options, checkout_data, preview, test_mode and expires_at.
 	// The store and variant are addressed through relationships.
@@ -142,7 +142,7 @@ func (p *LemonSqueezyProvider) CreateCheckout(
 				},
 
 				// The free trial is configured on the variant in the
-				// Lemonsqueezy dashboard — there is no per-checkout trial
+				// Lemonsqueezy dashboard. There is no per-checkout trial
 				// override. checkout_options.skip_trial would REMOVE it, so
 				// it is deliberately not set here.
 				"checkout_options": map[string]interface{}{
@@ -243,8 +243,8 @@ func (p *LemonSqueezyProvider) GetPortalURL(
 
 	url := result.Data.Attributes.URLs.CustomerPortal
 	if url == "" {
-		// Do not silently bounce the user back to the page they came from —
-		// that hides a real failure behind a no-op redirect.
+		// Do not silently bounce the user back to the page they came from.
+		// That hides a real failure behind a no-op redirect.
 		return "", fmt.Errorf(
 			"lemonsqueezy customer %s returned no customer_portal URL", customerID)
 	}
@@ -256,8 +256,8 @@ func (p *LemonSqueezyProvider) GetPortalURL(
 // Every other Lemonsqueezy event carries a DIFFERENT object shape:
 // order_created sends an Order (no top-level variant_id, status "paid"),
 // subscription_payment_* send a Subscription invoice. Parsing either as a
-// subscription writes a garbage row — plan "free", status "paid" and an order
-// ID in provider_sub_id — over a paying customer.
+// subscription writes a garbage row. Plan "free", status "paid" and an order
+// ID in provider_sub_id, over a paying customer.
 var lsSubscriptionEvents = map[string]bool{
 	"subscription_created":   true,
 	"subscription_updated":   true,
@@ -294,8 +294,8 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 	// Parse the event envelope.
 	//
 	// Note there is deliberately no first_subscription_item here: it is null
-	// while the subscription is on trial, and it carries no interval field —
-	// the interval is derived from variant_id instead.
+	// while the subscription is on trial, and it carries no interval field.
+	// The interval is derived from variant_id instead.
 	var envelope struct {
 		Meta struct {
 			EventName  string `json:"event_name"`
@@ -329,7 +329,7 @@ func (p *LemonSqueezyProvider) HandleWebhook(
 	}
 
 	if !lsSubscriptionEvents[envelope.Meta.EventName] {
-		// Not a subscription event — nothing to persist.
+		// Not a subscription event, so there is nothing to persist.
 		return nil, nil
 	}
 

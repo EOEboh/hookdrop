@@ -14,7 +14,7 @@ var rootCmd = &cobra.Command{
 	Use:   "hookdrop",
 	Short: "Stream and forward your hookdrop webhooks from the terminal",
 	Long: `hookdrop streams webhooks captured at hookdrop.app into your terminal and
-forwards each one to a local server the hosted backend can't reach directly —
+forwards each one to a local server the hosted backend can't reach directly.
 a local webhook forwarder for developing against real webhook traffic.`,
 	Example: `  hookdrop login                     # authenticate (opens your browser)
   hookdrop listen my-slug -f 3000    # stream + forward to localhost:3000

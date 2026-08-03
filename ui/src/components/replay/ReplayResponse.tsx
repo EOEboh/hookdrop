@@ -57,7 +57,7 @@ export function ReplayResponse({ response }: { response: ReplayResponseType }) {
   return (
     <div className="space-y-3">
 
-      {/* Status + latency — outcome instantly legible before reading any text */}
+      {/* Status + latency. Outcome instantly legible before reading any text */}
       <div className={`flex items-center gap-3 border rounded-lg px-4 py-3 transition-colors duration-200 ease-(--ease-considered) ${style.card}`}>
         {Icon && <Icon className={`w-5 h-5 shrink-0 ${style.iconClass}`} />}
         <span className={`font-mono font-bold text-lg tabular-nums ${style.status}`}>
@@ -75,7 +75,7 @@ export function ReplayResponse({ response }: { response: ReplayResponseType }) {
         </span>
       </div>
 
-      {/* Body — contained and scrollable */}
+      {/* Body. Contained and scrollable */}
       {response.body && (
         <pre className="text-xs font-mono bg-surface border border-border rounded-lg px-4 py-3 overflow-y-auto max-h-52 text-ink whitespace-pre-wrap leading-relaxed">
           {pretty}

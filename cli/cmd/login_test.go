@@ -129,12 +129,12 @@ func TestWaitForCallbackTimesOut(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 	if elapsed := time.Since(start); elapsed < 150*time.Millisecond {
-		t.Fatalf("returned too early (%v) — timeout not honored", elapsed)
+		t.Fatalf("returned too early (%v). Timeout not honored", elapsed)
 	}
 }
 
 // Two listeners bound back-to-back get distinct OS-assigned ports and each
-// delivers independently — demonstrating the port-0 design has no
+// delivers independently. Demonstrating the port-0 design has no
 // fixed-port collision even with concurrent logins.
 func TestConcurrentCallbacksDistinctPorts(t *testing.T) {
 	l1, l2 := listen(t), listen(t)

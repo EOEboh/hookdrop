@@ -24,7 +24,7 @@ func (h *RequestsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve slug/endpoint/session to the canonical ID requests are stored
-	// under, and enforce ownership — foreign resources return the same 404 as
+	// under, and enforce ownership. Foreign resources return the same 404 as
 	// missing ones.
 	user := middleware.GetUser(r)
 	sessionID, ok := h.Store.ResolveIdentifierForUser(identifier, user.ID)

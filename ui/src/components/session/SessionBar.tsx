@@ -29,7 +29,7 @@ export function SessionBar({ session, status, onReset }: Props) {
         <StatusDot status={status} />
       </div>
 
-      {/* URL block — primary affordance */}
+      {/* URL block. Primary affordance */}
       <div data-tour="inbox-url" className="bg-surface border border-border rounded-lg px-3 py-2.5 flex items-center gap-2 hover:border-border-strong transition-colors duration-200 ease-(--ease-considered)">
         <code className="flex-1 font-mono text-xs text-indigo-400 truncate select-all leading-relaxed">
           {inboxUrl}
@@ -41,7 +41,7 @@ export function SessionBar({ session, status, onReset }: Props) {
         />
       </div>
 
-      {/* First-time nudge — points at the copy button, dismissed after first copy */}
+      {/* First-time nudge. Points at the copy button, dismissed after first copy */}
       <OnboardingHint />
 
       {/* TTL + reset */}

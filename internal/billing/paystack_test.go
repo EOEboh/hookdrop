@@ -178,7 +178,7 @@ func TestVerifyTransaction_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if *calls != 1 {
-		t.Errorf("made %d requests, want 1 — a success must not retry", *calls)
+		t.Errorf("made %d requests, want 1. A success must not retry", *calls)
 	}
 	if tx.Amount != 350000 || tx.Currency != "NGN" {
 		t.Errorf("amount/currency = %d/%s", tx.Amount, tx.Currency)
@@ -206,7 +206,7 @@ func TestVerifyTransaction_FailuresAreErrors(t *testing.T) {
 			p, calls := paystackStub(t, body, 200)
 			tx, err := p.VerifyTransaction(context.Background(), "T_bad")
 			if err == nil {
-				t.Fatalf("expected an error, got tx=%+v — this is the free-Pro escalation", tx)
+				t.Fatalf("expected an error, got tx=%+v. This is the free-Pro escalation", tx)
 			}
 			if *calls != 3 {
 				t.Errorf("made %d attempts, want 3 (retries preserved)", *calls)
@@ -290,7 +290,7 @@ func TestHandleWebhook_ReadsUserIDFromTransactionMetadata(t *testing.T) {
 	}
 }
 
-// metadata:0 must not abort the parse — the event still has to resolve by
+// metadata:0 must not abort the parse. The event still has to resolve by
 // customer code downstream.
 func TestHandleWebhook_SurvivesIntegerMetadata(t *testing.T) {
 	p := NewPaystackProvider("sk", testSecret512, PaystackPlans{ProMonthly: "PLN_monthly"})
@@ -308,7 +308,7 @@ func TestHandleWebhook_SurvivesIntegerMetadata(t *testing.T) {
 		t.Errorf("UserID = %q, want empty", ev.UserID)
 	}
 	if ev.CustomerID != "CUS_1" {
-		t.Errorf("CustomerID = %q, want CUS_1 — the fallback key", ev.CustomerID)
+		t.Errorf("CustomerID = %q, want CUS_1. The fallback key", ev.CustomerID)
 	}
 }
 
@@ -347,7 +347,7 @@ func TestHandleWebhook_NotRenewFlagsCancelAtPeriodEnd(t *testing.T) {
 // realSubscriptionCreatePayload is a verbatim capture of what Paystack
 // actually sent on subscription.create (test mode, 2026-07-28), trimmed of
 // identifying values. Note data.plan is an OBJECT here, though it is a bare
-// code string on transaction payloads — decoding it as a string failed the
+// code string on transaction payloads. Decoding it as a string failed the
 // whole parse and dropped the event with a 400.
 const realSubscriptionCreatePayload = `{
   "event": "subscription.create",
@@ -406,7 +406,7 @@ func TestHandleWebhook_RealSubscriptionCreatePayload(t *testing.T) {
 
 	// The object-shaped plan must still resolve to our plan.
 	if ev.Plan != "pro" {
-		t.Errorf("Plan = %q, want pro — the object-shaped plan was not recognised", ev.Plan)
+		t.Errorf("Plan = %q, want pro. The object-shaped plan was not recognised", ev.Plan)
 	}
 	if ev.SubscriptionID != "SUB_xhhcq6g7fl194tn" {
 		t.Errorf("SubscriptionID = %q, want the SUB_ code", ev.SubscriptionID)
@@ -414,7 +414,7 @@ func TestHandleWebhook_RealSubscriptionCreatePayload(t *testing.T) {
 	// metadata is null on subscription events, so the customer code is the
 	// only key that can resolve the user.
 	if ev.UserID != "" {
-		t.Errorf("UserID = %q, want empty — Paystack sends metadata:null here", ev.UserID)
+		t.Errorf("UserID = %q, want empty. Paystack sends metadata:null here", ev.UserID)
 	}
 	if ev.CustomerID != "CUS_mpzcgx3mniosw1j" {
 		t.Errorf("CustomerID = %q, want the customer code", ev.CustomerID)

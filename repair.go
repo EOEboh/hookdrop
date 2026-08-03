@@ -16,7 +16,7 @@ import (
 //
 // Those rows predate subscription.create being applied correctly. They cannot
 // be cancelled through the Paystack API, and their current_period_end was
-// derived at signup and never refreshed by a renewal — so once access is gated
+// derived at signup and never refreshed by a renewal, so once access is gated
 // on the period, they read as lapsed.
 //
 // Dry run by default: nothing is written unless apply is true.
@@ -31,11 +31,11 @@ func repairPaystackSubscriptions(
 	}
 
 	if len(rows) == 0 {
-		log.Printf("repair: nothing to do — every Paystack row already holds a subscription code")
+		log.Printf("repair: nothing to do. Every Paystack row already holds a subscription code")
 		return nil
 	}
 
-	mode := "DRY RUN — nothing will be written"
+	mode := "DRY RUN. Nothing will be written"
 	if apply {
 		mode = "APPLYING changes"
 	}
@@ -101,9 +101,9 @@ func repairPaystackSubscriptions(
 	}
 
 	if apply {
-		log.Printf("repair: done — %d repaired, %d failed", repaired, failed)
+		log.Printf("repair: done. %d repaired, %d failed", repaired, failed)
 	} else {
-		log.Printf("repair: dry run complete — %d would be repaired, %d could not be resolved", len(rows)-failed, failed)
+		log.Printf("repair: dry run complete. %d would be repaired, %d could not be resolved", len(rows)-failed, failed)
 		log.Printf("repair: re-run with -apply to write these changes")
 	}
 	if failed > 0 {

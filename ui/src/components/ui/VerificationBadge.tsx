@@ -28,7 +28,7 @@ export function VerificationBadge({ status, provider, showProvider = false }: Pr
   const { label, className, dotClass } = config[status] ?? config.unverified
   const displayLabel =
     showProvider && provider && status !== 'unverified'
-      ? `${provider} — ${label}`
+      ? `${provider}: ${label}`
       : label
 
   return (

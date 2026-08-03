@@ -78,7 +78,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
   // Track the current target element's rect so the overlay/tooltip can
   // follow it (and re-resolve it on scroll/resize/content changes).
   // useLayoutEffect (not useEffect) so the rect updates in the same paint
-  // as the step's content — otherwise the old spotlight can flash for a
+  // as the step's content. Otherwise the old spotlight can flash for a
   // frame while the new step's copy has already rendered.
   useLayoutEffect(() => {
     if (!isActive || !step?.target) {

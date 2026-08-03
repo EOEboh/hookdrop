@@ -85,8 +85,8 @@ type Subscription struct {
 	CurrentPeriodEnd   *time.Time `json:"current_period_end"`
 	TrialEnd           *time.Time `json:"trial_end"`
 	CancelAtPeriodEnd  bool       `json:"cancel_at_period_end"`
-	// AutoRenews is false when the payment method cannot be charged again —
-	// a Paystack bank transfer, for example. Such a subscription is a single
+	// AutoRenews is false when the payment method cannot be charged again.
+	// A Paystack bank transfer, for example. Such a subscription is a single
 	// paid period that will simply expire, and the UI must say so.
 	AutoRenews bool      `json:"auto_renews"`
 	Currency   string    `json:"currency"`
@@ -107,8 +107,8 @@ type BillingEvent struct {
 	EventType string
 	Payload   string
 	// EventKey is the SHA-256 of the raw payload. Neither provider sends a
-	// unique event ID, but retries are byte-identical — they have to be, since
-	// the signature is computed over the raw body — so the hash is stable
+	// unique event ID, but retries are byte-identical. They have to be, since
+	// the signature is computed over the raw body, so the hash is stable
 	// across them.
 	EventKey string
 	// EventAt is the provider's own timestamp for the event, used to reject

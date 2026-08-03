@@ -88,7 +88,7 @@ export function TermsPage() {
             <p>
               Subscriptions auto-renew at the end of each billing period unless
               cancelled before the renewal date. You can cancel at any time from
-              your billing settings — access continues until the end of the paid
+              your billing settings. Access continues until the end of the paid
               period with no partial refunds for unused time.
             </p>
             <p>

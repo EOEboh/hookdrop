@@ -122,7 +122,7 @@ export interface APIToken {
 export interface CreatedAPIToken {
   id: string
   name: string
-  token: string // full secret — only ever present in the create response
+  token: string // full secret. Only ever present in the create response
   token_prefix: string
   created_at: string
   expires_at: string | null

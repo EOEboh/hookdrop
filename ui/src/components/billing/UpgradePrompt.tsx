@@ -39,7 +39,7 @@ export function UpgradePrompt({ feature, description }: Props) {
         disabled={loading}
         className="w-full py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 active:scale-[0.98] disabled:opacity-50 text-white text-xs font-medium transition-all duration-200 ease-(--ease-considered)"
       >
-        {loading ? 'Redirecting…' : `Upgrade to Pro — ${price}`}
+        {loading ? 'Redirecting…' : `Upgrade to Pro for ${price}`}
       </button>
       <p className="text-[11px] text-faint text-center">14-day free trial · Cancel anytime</p>
     </div>

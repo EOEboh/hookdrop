@@ -56,7 +56,7 @@ func (b *Broadcaster) Broadcast(sessionID string, req *models.CapturedRequest) {
 
 	clients, ok := b.clients[sessionID]
 	if !ok || len(clients) == 0 {
-		return // no one is watching — that's fine
+		return // no one is watching. That's fine
 	}
 
 	payload, err := json.Marshal(req)
@@ -70,7 +70,7 @@ func (b *Broadcaster) Broadcast(sessionID string, req *models.CapturedRequest) {
 		case client.Send <- payload:
 			// delivered
 		default:
-			// client's channel is full — it's too slow, skip it
+			// client's channel is full. It's too slow, skip it
 			// it will catch up via the REST history endpoint
 			log.Printf("SSE client too slow, dropping event for session %s", sessionID)
 		}

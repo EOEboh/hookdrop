@@ -10,7 +10,7 @@ import (
 )
 
 // MeHandler returns the authenticated user's identity, plan, and limits.
-// Works with both JWTs and API tokens — the CLI uses it for `hookdrop whoami`
+// Works with both JWTs and API tokens. The CLI uses it for `hookdrop whoami`
 // and to validate a token at login.
 type MeHandler struct {
 	Store *store.Store
