@@ -82,6 +82,9 @@ export interface Subscription {
   current_period_end: string | null
   trial_end: string | null
   cancel_at_period_end: boolean
+  // False when the payment method cannot be charged again (a Paystack bank
+  // transfer). The subscription is a single paid period that will expire.
+  auto_renews: boolean
   currency: 'usd' | 'ngn'
   interval: 'month' | 'year'
 }

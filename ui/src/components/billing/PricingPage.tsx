@@ -58,6 +58,7 @@ function PaystackButton({
   loading,
   setLoading,
   onSuccess,
+  label,
 }: {
   interval: 'month' | 'year'
   email: string
@@ -65,6 +66,7 @@ function PaystackButton({
   loading: boolean
   setLoading: (v: boolean) => void
   onSuccess: (ref: string, interval: 'month' | 'year') => void
+  label?: string
 }) {
   const posthog = usePostHog() 
   const { getPaystackConfig } = useBilling()
@@ -102,7 +104,9 @@ function PaystackButton({
     >
       {loading
         ? 'Processing…'
-        : `Subscribe — ${display.amount}${display.suffix}`
+        : label
+          ? `${label} — ${display.amount}${display.suffix}`
+          : `Subscribe — ${display.amount}${display.suffix}`
       }
     </button>
   )
@@ -173,7 +177,12 @@ export function PricingPage() {
     setPayLoading(false)
   }
 
-  // ── Renewal date label — aware of cancellation and trial states
+  // A subscription paid for with a method that cannot be charged again is a
+  // single period, not a recurring plan. Saying "Renews" would be untrue.
+  const willNotRenew =
+    subscription?.auto_renews === false && !subscription?.cancel_at_period_end
+
+  // ── Renewal date label — aware of cancellation, trial and one-off states
   function renewalLabel(): string {
     if (!subscription?.current_period_end) return 'monthly'
     const date = new Date(subscription.current_period_end).toLocaleDateString(
@@ -181,6 +190,7 @@ export function PricingPage() {
       { day: 'numeric', month: 'long', year: 'numeric' },
     )
     if (subscription.cancel_at_period_end) return `Access until ${date}`
+    if (willNotRenew) return `Expires ${date}`
     return `Renews ${date}`
   }
 
@@ -228,6 +238,35 @@ export function PricingPage() {
                 </div>
               ))}
             </div>
+
+            {willNotRenew && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3 space-y-2">
+                <p className="text-xs text-amber-300">
+                  This payment covered a single period and will not renew
+                  automatically — the method you paid with cannot be charged
+                  again. Renew below to extend your access; the new period is
+                  added to the time you have left.
+                </p>
+                <PaystackButton
+                  interval={subscription?.interval === 'year' ? 'year' : 'month'}
+                  email={user?.email ?? ''}
+                  userId={user?.id ?? ''}
+                  loading={payLoading}
+                  setLoading={setPayLoading}
+                  onSuccess={handlePaystackSuccess_}
+                  label="Renew"
+                />
+              </div>
+            )}
+
+            {payError && (
+              <div
+                role="alert"
+                className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400"
+              >
+                {payError}
+              </div>
+            )}
 
             {/* Management section: toggles between button and panel */}
             <div className="pt-4 border-t border-border">
