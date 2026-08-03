@@ -67,8 +67,8 @@ export function CliAuthPage() {
         name: `CLI (browser login, ${hostname})`,
       })
       sessionStorage.removeItem(CLI_AUTH_KEY)
-      // Top-level navigation to the loopback listener the CLI runs —
-      // navigation (unlike fetch) is exempt from mixed-content blocking.
+      // Top-level navigation to the loopback listener the CLI runs.
+      // Navigation (unlike fetch) is exempt from mixed-content blocking.
       window.location.href =
         `http://127.0.0.1:${params.port}/callback` +
         `?token=${encodeURIComponent(created.token)}&state=${encodeURIComponent(params.state)}`

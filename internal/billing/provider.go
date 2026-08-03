@@ -56,7 +56,7 @@ type WebhookEvent struct {
 //
 // Currency selection happens on the client (detectCurrency in
 // ui/src/context/BillingContext.tsx), which keeps its own timezone list
-// derived from this map — keep the two in step.
+// derived from this map. Keep the two in step.
 var PaystackCountries = map[string]bool{
 	"NG": true, "GH": true, "ZA": true, "KE": true,
 	"CI": true, "RW": true, "TZ": true, "EG": true,

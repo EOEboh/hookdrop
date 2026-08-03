@@ -353,7 +353,7 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 		}, nil
 
 	case "charge.success":
-		// Subscription renewals arrive as charge.success — Paystack sends no
+		// Subscription renewals arrive as charge.success. Paystack sends no
 		// subscription.* event when a recurring payment goes through. Without
 		// handling it, current_period_end is written once at signup and then
 		// silently goes stale.
@@ -397,7 +397,7 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			Type:       "subscription.updated",
 			CustomerID: charge.Customer.CustomerCode,
 			// charge.success names no subscription, so this cannot set
-			// provider_sub_id — the user resolves by customer code.
+			// provider_sub_id. The user resolves by customer code.
 			Plan:     "pro",
 			Status:   "active",
 			Currency: "ngn",
@@ -414,7 +414,7 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 		// only notice we get that the subscription has stopped paying.
 		//
 		// This exists to make the downgrade prompt. It is NOT what guarantees
-		// correctness — IsActive expires access once the period lapses, which
+		// correctness. IsActive expires access once the period lapses, which
 		// holds whether or not this event ever arrives or is shaped as
 		// expected. Parsed defensively for that reason: only fields present in
 		// every Paystack payload observed so far are relied on.
@@ -455,7 +455,7 @@ func (p *PaystackProvider) HandleWebhook(payload []byte, signature string) (*Web
 			Type:       "subscription.updated",
 			CustomerID: inv.Customer.CustomerCode,
 			// The subscription code is nested and its shape is unconfirmed, so
-			// it is deliberately not read — processWebhookEvent preserves the
+			// it is deliberately not read. ProcessWebhookEvent preserves the
 			// stored one and the user resolves by customer code.
 			Plan:     "pro",
 			Status:   "past_due",
@@ -556,7 +556,7 @@ func (p *PaystackProvider) planFromCode(code string) string {
 // IntervalForPlanCode reports the billing interval for one of our configured
 // plan codes. The second return is false for any code that is not ours.
 //
-// This is the authority on interval — the client-supplied value is not
+// This is the authority on interval. The client-supplied value is not
 // trusted, since it drives current_period_end.
 func (p *PaystackProvider) IntervalForPlanCode(code string) (string, bool) {
 	switch {
@@ -588,7 +588,7 @@ type PaystackTransaction struct {
 	// Channel is how it was paid: card, bank_transfer, ussd and so on.
 	Channel string
 	// Reusable reports whether the authorization can be charged again.
-	// Paystack subscriptions need one that can — bank transfer produces
+	// Paystack subscriptions need one that can. Bank transfer produces
 	// reusable=false, so the plan is charged once and no subscription is
 	// created at all.
 	Reusable bool
@@ -609,7 +609,7 @@ type PaystackPlanInfo struct {
 // paystackVerifyResponse mirrors GET /transaction/verify/{reference}.
 //
 // Plan is json.RawMessage because Paystack returns it as a plan code string on
-// some transactions and as a full plan object on others — decoding it into a
+// some transactions and as a full plan object on others. Decoding it into a
 // fixed shape aborts the whole parse mid-way, which is what originally made
 // legitimate payments fail verification.
 type paystackVerifyResponse struct {
@@ -765,7 +765,7 @@ func (p *PaystackProvider) VerifyTransaction(
 // object, which is the only route from a customer *code* to a subscription.
 //
 // GET /subscription?customer= expects the numeric customer id, not the code,
-// and silently returns zero rows when given a code — which is what made the
+// and silently returns zero rows when given a code, which is what made the
 // old cancel path fail without complaining.
 type PaystackCustomerSubscription struct {
 	SubscriptionCode string

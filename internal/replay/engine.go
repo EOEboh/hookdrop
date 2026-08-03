@@ -20,7 +20,7 @@ func NewEngine() *Engine {
 	return &Engine{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
-			// Don't follow redirects — return them as-is so the
+			// Don't follow redirects. Return them as-is so the
 			// developer sees exactly what their server responded
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -35,7 +35,7 @@ func (e *Engine) Replay(
 	replayReq *models.ReplayRequest,
 ) (*models.ReplayResponse, error) {
 
-	// 1. Determine body — use override if provided, else original
+	// 1. Determine body. Use override if provided, else original
 	bodyBytes := original.Body
 	if replayReq.Body != "" {
 		bodyBytes = []byte(replayReq.Body)
@@ -80,7 +80,7 @@ func (e *Engine) Replay(
 	}
 	defer resp.Body.Close()
 
-	// 7. Read response body — cap at 1MB
+	// 7. Read response body. Cap at 1MB
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)

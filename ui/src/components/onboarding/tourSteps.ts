@@ -10,7 +10,7 @@ export interface TourStepConfig {
   copy: string
   placement: TourPlacement
   primaryLabel: string
-  /** Hides the step indicator ("N of 5") — spec allows this on the final step. */
+  /** Hides the step indicator ("N of 5"). Spec allows this on the final step. */
   isFinal?: boolean
 }
 
@@ -32,7 +32,7 @@ export const TOUR_STEPS: TourStepConfig[] = [
   {
     id: 'request-feed',
     target: 'request-feed',
-    copy: 'The moment a webhook arrives at your URL, it shows up here instantly — no refresh, no polling.',
+    copy: 'The moment a webhook arrives at your URL, it shows up here instantly. No refresh, no polling.',
     placement: 'right',
     primaryLabel: 'Next',
   },
@@ -46,7 +46,7 @@ export const TOUR_STEPS: TourStepConfig[] = [
   {
     id: 'replay-panel',
     target: 'replay-panel',
-    copy: "Once you've got a real webhook captured, replay it to your local server as many times as you need — no need to trigger it again from the provider.",
+    copy: "Once you've got a real webhook captured, replay it to your local server as many times as you need. No need to trigger it again from the provider.",
     placement: 'left',
     primaryLabel: 'Got it',
     isFinal: true,

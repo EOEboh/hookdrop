@@ -69,7 +69,7 @@ func (f *Forwarder) Start(ctx context.Context) {
 }
 
 // Enqueue adds a webhook to the delivery queue. Returns false when the
-// queue is full — callers should surface the drop, never block the SSE
+// queue is full. Callers should surface the drop, never block the SSE
 // reader on a slow local server.
 func (f *Forwarder) Enqueue(req *api.CapturedRequest) bool {
 	select {
@@ -115,7 +115,7 @@ func (f *Forwarder) deliver(ctx context.Context, original *api.CapturedRequest) 
 
 // shouldSkipHeader filters headers that break or are meaningless when
 // forwarded. Parity port of shouldSkipHeader in the backend's
-// internal/replay/engine.go — keep the two lists identical so behavior
+// internal/replay/engine.go. Keep the two lists identical so behavior
 // matches whether a request is replayed from the web UI or forwarded live.
 func shouldSkipHeader(key string) bool {
 	skip := map[string]bool{

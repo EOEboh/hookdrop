@@ -62,8 +62,8 @@ const PastDueGrace = 7 * 24 * time.Hour
 // IsActive reports whether a subscription is usable right now.
 //
 // The period is authoritative, not the status. Paystack does not retry a
-// failed subscription charge — "when a payment attempt fails, it will not be
-// attempted again" — so a lapsed subscription simply stops producing events
+// failed subscription charge: "when a payment attempt fails, it will not be
+// attempted again", so a lapsed subscription simply stops producing events
 // and sits at status "active" forever. Trusting the status alone handed those
 // customers Pro indefinitely.
 func IsActive(status string, periodEnd *time.Time) bool {

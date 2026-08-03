@@ -16,7 +16,7 @@ func (s *Store) CreateAPIToken(t *models.APIToken) error {
 	return err
 }
 
-// GetAPITokenByHash returns the token only if it is active — revoked or
+// GetAPITokenByHash returns the token only if it is active. Revoked or
 // expired tokens are filtered out in SQL so callers can't misuse them.
 func (s *Store) GetAPITokenByHash(hash string) (*models.APIToken, error) {
 	t := &models.APIToken{}
@@ -85,7 +85,7 @@ func (s *Store) RevokeAllAPITokens(userID string) error {
 }
 
 // TouchAPIToken records usage, throttled to one write per 5 minutes per
-// token via the WHERE clause — no in-memory state needed.
+// token via the WHERE clause. No in-memory state needed.
 func (s *Store) TouchAPIToken(id string, now time.Time) error {
 	_, err := s.db.Exec(
 		`UPDATE api_tokens SET last_used_at = ?

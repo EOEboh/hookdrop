@@ -21,7 +21,7 @@ func NewManager(s *store.Store) *Manager {
 
 func (m *Manager) CreateSession(userID string) (*models.Session, error) {
 	session := &models.Session{
-		ID:        uuid.NewString()[:8], // short ID — easier to read in URLs
+		ID:        uuid.NewString()[:8], // short ID. Easier to read in URLs
 		UserID:    userID,
 		CreatedAt: time.Now().UTC(),
 		ExpiresAt: time.Now().UTC().Add(DefaultTTL),

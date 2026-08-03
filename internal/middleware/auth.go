@@ -14,7 +14,7 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
-// Auth methods — token-management routes are JWT-only so a leaked API token
+// Auth methods. Token-management routes are JWT-only so a leaked API token
 // cannot mint or revoke tokens.
 const (
 	AuthMethodJWT      = "jwt"

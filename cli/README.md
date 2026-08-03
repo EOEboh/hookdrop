@@ -14,7 +14,7 @@ hookdrop listen my-slug -f 3000      # stream webhooks + forward to localhost:30
 
 ## Install
 
-### curl (recommended — one line, no extra steps)
+### curl (recommended, one line, no extra steps)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/EOEboh/hookdrop/main/scripts/install.sh | sh
@@ -41,7 +41,7 @@ fails with "Refusing to load formula … from untrusted tap".)
 
 Download the archive from [GitHub Releases](https://github.com/EOEboh/hookdrop/releases).
 (Note: replacing `hookdrop.exe` while a `listen` session is running will fail
-on Windows — stop it first. On macOS/Linux, upgrading while running is fine;
+on Windows, so stop it first. On macOS/Linux, upgrading while running is fine;
 the active session keeps the old binary until it exits.)
 
 ## Use
@@ -69,8 +69,8 @@ Shell completions are available via `hookdrop completion bash|zsh|fish|powershel
 
 Forwarded requests carry `X-Hookdrop-Forwarded: true` and
 `X-Hookdrop-Original-Id` headers; hop-by-hop headers (`Host`,
-`Content-Length`, …) are regenerated, everything else — including provider
-signature headers — is preserved byte-for-byte.
+`Content-Length`, …) are regenerated, everything else, including provider
+signature headers, is preserved byte-for-byte.
 
 ## Config
 

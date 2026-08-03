@@ -46,7 +46,7 @@ or --no-browser on headless machines.`,
 		if token == "" && !loginNoBrowser {
 			token, err = browserLogin(cmd.Context(), cfg.FrontendURL)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Browser login didn't complete (%v) — falling back to manual entry.\n", err)
+				fmt.Fprintf(os.Stderr, "Browser login didn't complete (%v). Falling back to manual entry.\n", err)
 			}
 		}
 		if token == "" {
@@ -110,7 +110,7 @@ func browserLogin(ctx context.Context, frontendURL string) (string, error) {
 
 	fmt.Printf("Opening your browser to authorize the CLI…\n  %s\n", authURL)
 	if err := openBrowser(authURL); err != nil {
-		fmt.Fprintln(os.Stderr, "Couldn't open a browser automatically — open the URL above manually.")
+		fmt.Fprintln(os.Stderr, "Couldn't open a browser automatically. Open the URL above manually.")
 	}
 	fmt.Println("Waiting for authorization…")
 
@@ -135,7 +135,7 @@ func waitForCallback(ctx context.Context, listener net.Listener, state string, t
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, `<!doctype html><html><body style="font-family: system-ui; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0">
-<div style="text-align: center"><h2>✓ You're logged in</h2><p>Return to your terminal — you can close this tab.</p></div>
+<div style="text-align: center"><h2>✓ You're logged in</h2><p>Return to your terminal. You can close this tab.</p></div>
 </body></html>`)
 		// Flush before signaling: the wait returns and closes the server as
 		// soon as it has the token, which would race the buffered response.

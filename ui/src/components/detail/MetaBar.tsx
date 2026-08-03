@@ -8,7 +8,7 @@ export function MetaBar({ request }: { request: CapturedRequest }) {
     <div className="px-6 py-4 border-b border-border bg-surface/50">
       <div className="flex items-center justify-between gap-4 flex-wrap">
 
-        {/* Primary — dominates: method + verification */}
+        {/* Primary. Dominates: method + verification */}
         <div className="flex items-center gap-3">
           <MethodBadge method={request.method} size="lg" />
           <div className="w-px h-5 bg-border shrink-0" />
@@ -19,7 +19,7 @@ export function MetaBar({ request }: { request: CapturedRequest }) {
           />
         </div>
 
-        {/* Secondary — recedes: IP, time, size, ID */}
+        {/* Secondary. Recedes: IP, time, size, ID */}
         <div className="flex items-center gap-2 font-mono text-xs text-muted flex-wrap">
           <span className="text-ink">{request.remote_ip}</span>
           <span className="text-border-strong">·</span>

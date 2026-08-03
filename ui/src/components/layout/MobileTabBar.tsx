@@ -14,7 +14,7 @@ const TABS: { key: MobileTab; label: string; Icon: typeof TerminalIcon }[] = [
   { key: 'detail',    label: 'Detail',    Icon: MousePointerIcon },
 ]
 
-// Fixed bottom nav shown only below the lg breakpoint — desktop two-panel
+// Fixed bottom nav shown only below the lg breakpoint. Desktop two-panel
 // layout is completely untouched.
 export function MobileTabBar({ active, onChange, hasSelection }: Props) {
   return (

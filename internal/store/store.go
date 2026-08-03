@@ -26,7 +26,7 @@ func (s *Store) Ping() error {
 		return fmt.Errorf("connection: %w", err)
 	}
 
-	// A real query catches issues Ping() alone misses — locked file,
+	// A real query catches issues Ping() alone misses. Locked file,
 	// corrupted schema, disk full. SELECT 1 against sqlite_master is
 	// the lightest possible real query.
 	var result int
@@ -212,7 +212,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	// Safe column additions — idempotent, safe to run on every startup
+	// Safe column additions. Idempotent, safe to run on every startup
 	migrations := []struct {
 		table      string
 		column     string
@@ -490,7 +490,7 @@ func (s *Store) ConsumeMagicLink(token string) (*models.User, error) {
 		return nil, fmt.Errorf("token expired")
 	}
 
-	// Mark as consumed — one-time use
+	// Mark as consumed. One-time use
 	_, err = s.db.Exec(
 		`UPDATE magic_links SET used = 1 WHERE id = ?`, link.ID,
 	)
@@ -590,8 +590,8 @@ func (s *Store) IdentifierExists(id string) bool {
 
 // ResolveIdentifierForUser resolves a slug, endpoint ID, or session ID to the
 // canonical identifier requests are stored/broadcast under, and checks the
-// user may access it. ok=false covers both "not found" and "not yours" —
-// callers must respond 404 so foreign resources are indistinguishable from
+// user may access it. ok=false covers both "not found" and "not yours".
+// Callers must respond 404 so foreign resources are indistinguishable from
 // missing ones (same convention as the secrets handler).
 func (s *Store) ResolveIdentifierForUser(identifier, userID string) (string, bool) {
 	if ep, err := s.GetEndpointBySlug(identifier); err == nil && ep != nil {
@@ -740,7 +740,7 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 	// - Auto-expiry check ─────────────────────────────────────────────────
 	// If the user cancelled and the period has passed, treat them as free
 	// without waiting for a Paystack webhook that may never arrive.
-	// This is a read-time check only — nothing is written to the database.
+	// This is a read-time check only. Nothing is written to the database.
 	// The webhook will eventually persist the correct state when it fires.
 	if sub.CancelAtPeriodEnd &&
 		sub.CurrentPeriodEnd != nil &&
@@ -768,7 +768,7 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 const BillingEventRetention = 90 * 24 * time.Hour
 
 // ErrDuplicateBillingEvent means this exact webhook payload has been seen
-// before — the provider retried a delivery we already have.
+// before. The provider retried a delivery we already have.
 var ErrDuplicateBillingEvent = errors.New("duplicate billing event")
 
 // RecordBillingEvent stores an inbound webhook before it is processed.
@@ -896,7 +896,7 @@ func (s *Store) DeleteOldBillingEvents() (int64, error) {
 // subscription ID. Used to recover the local user when a webhook arrives
 // without custom_data.user_id.
 //
-// Unlike GetSubscription this returns (nil, nil) when there is no row — the
+// Unlike GetSubscription this returns (nil, nil) when there is no row. The
 // caller needs to tell "not found" apart from "free plan".
 func (s *Store) GetSubscriptionByProviderSubID(providerSubID string) (*models.Subscription, error) {
 	return s.subscriptionBy("provider_sub_id", providerSubID)
@@ -929,7 +929,7 @@ func (s *Store) ListPaystackSubscriptionsNeedingRepair() ([]*models.Subscription
 		WHERE provider = 'paystack'
 		  AND COALESCE(provider_sub_id,'') NOT LIKE 'SUB\_%' ESCAPE '\'
 		  -- Already reconciled. A row marked non-recurring will never gain a
-		  -- SUB_ code, because there is no subscription to find — without this
+		  -- SUB_ code, because there is no subscription to find. Without this
 		  -- it is reported as outstanding on every run, for ever.
 		  AND COALESCE(auto_renews,1) = 1
 		ORDER BY created_at`)
@@ -988,7 +988,7 @@ func (s *Store) MarkSubscriptionNonRecurring(id string) error {
 }
 
 // subscriptionBy fetches one subscription by an indexed provider column.
-// column is never caller-supplied — it comes from the two wrappers above.
+// column is never caller-supplied. It comes from the two wrappers above.
 func (s *Store) subscriptionBy(column, value string) (*models.Subscription, error) {
 	if value == "" {
 		return nil, nil

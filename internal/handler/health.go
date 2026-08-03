@@ -38,8 +38,8 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store") // monitors must never get a cached result
 
 	if err := h.Store.Ping(); err != nil {
-		// Deliberately don't leak err.Error() in the response —
-		// internal error details have no business being public.
+		// Deliberately don't leak err.Error() in the response.
+		// Internal error details have no business being public.
 		// Full detail goes to the server log only.
 		resp.Status = "degraded"
 		resp.Database = "error"

@@ -76,7 +76,7 @@ func (p *Printer) Event(req *api.CapturedRequest, showID bool) string {
 
 // ForwardResult renders the delivery outcome, indented under its event:
 //
-//	   ↳ (4dbb48bd) 200 in 45ms
+//	↳ (4dbb48bd) 200 in 45ms
 func (p *Printer) ForwardResult(res forward.Result) string {
 	id := Colorize(p.Colors, Dim, "("+ShortID(res.Request.ID)+")")
 	if res.Err != nil {
@@ -105,7 +105,7 @@ func (p *Printer) Status(s string) string {
 func (p *Printer) Ready(inboxURL, forwardURL string) string {
 	check := Colorize(p.Colors, Green, "✓")
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s Ready — listening on %s\n", check, Colorize(p.Colors, Bold, inboxURL))
+	fmt.Fprintf(&b, "%s Ready. Listening on %s\n", check, Colorize(p.Colors, Bold, inboxURL))
 	if forwardURL != "" {
 		fmt.Fprintf(&b, "  → forwarding to %s\n", Colorize(p.Colors, Bold, forwardURL))
 	}

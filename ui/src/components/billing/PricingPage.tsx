@@ -38,7 +38,7 @@ const PRO_FEATURES = [
 ]
 
 // The free trial is a Lemon Squeezy feature. Paystack has no native trial
-// support, so NGN customers are charged on signup — advertising a trial to
+// support, so NGN customers are charged on signup. Advertising a trial to
 // them would be promising something we do not deliver.
 function proFeatures(currency: 'ngn' | 'usd'): string[] {
   return currency === 'ngn'
@@ -135,7 +135,7 @@ export function PricingPage() {
 
   const prices = PLANS[currency]?.[interval] ?? PLANS['usd']['month']
 
-  // ── Loading guard — prevents flash of free view for Pro users
+  // ── Loading guard. Prevents flash of free view for Pro users
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -182,7 +182,7 @@ export function PricingPage() {
   const willNotRenew =
     subscription?.auto_renews === false && !subscription?.cancel_at_period_end
 
-  // ── Renewal date label — aware of cancellation, trial and one-off states
+  // ── Renewal date label. Aware of cancellation, trial and one-off states
   function renewalLabel(): string {
     if (!subscription?.current_period_end) return 'monthly'
     const date = new Date(subscription.current_period_end).toLocaleDateString(

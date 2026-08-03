@@ -52,7 +52,7 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
     const newFilters = { ...filters, [key]: isToggleOn ? value : '' }
     onChange(newFilters)
     if (isToggleOn) {
-      posthog?.capture('filter_applied', {              // add — only on activation
+      posthog?.capture('filter_applied', {              // add. Only on activation
         filter_type: key,
         value,
       })
@@ -123,7 +123,7 @@ export function FilterBar({ filters, onChange, resultCount, totalCount }: Props)
         </button>
       </div>
 
-      {/* Active filter chips — always visible when filters applied (even when collapsed) */}
+      {/* Active filter chips. Always visible when filters applied (even when collapsed) */}
       {hasActiveChips && (
         <div className="flex flex-wrap gap-1.5 px-3 pb-2">
           {filters.method && (

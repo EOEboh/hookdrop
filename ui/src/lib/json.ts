@@ -28,12 +28,12 @@ export interface JsonToken {
 /**
  * Tokenizes a pretty-printed JSON string into typed segments for syntax
  * highlighting. Uses 7 capture groups:
- *   1. key    — string immediately followed by ":"  (lookahead, colon not consumed)
- *   2. string — any other quoted string
- *   3. boolean — true | false
+ *   1. key   . String immediately followed by ":"  (lookahead, colon not consumed)
+ *   2. string. Any other quoted string
+ *   3. boolean. True | false
  *   4. null
  *   5. number
- *   6. punctuation — { } [ ] , :
+ *   6. punctuation: { } [ ] , :
  *   7. (fallback other)
  */
 export function tokenizeJson(json: string): JsonToken[] {

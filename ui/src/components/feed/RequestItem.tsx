@@ -18,7 +18,7 @@ export function RequestItem({ request, selected, isNew = false, onClick }: Props
         selected ? 'bg-indigo-500/[0.07]' : 'hover:bg-surface'
       } ${isNew ? 'animate-arrive' : ''}`}
     >
-      {/* Left accent bar — always present, no layout shift */}
+      {/* Left accent bar. Always present, no layout shift */}
       <span
         className={`absolute left-0 top-0 bottom-0 w-0.5 transition-colors duration-200 ease-(--ease-considered) ${
           selected ? 'bg-indigo-400' : 'bg-transparent group-hover:bg-border-strong'

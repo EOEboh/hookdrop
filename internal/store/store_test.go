@@ -221,7 +221,7 @@ func TestLatestProcessedEventAt(t *testing.T) {
 		t.Fatalf("record: %v", err)
 	}
 	if _, found, err := s.LatestProcessedEventAt("lemonsqueezy", "sub-1"); err != nil || found {
-		t.Fatalf("found = %t (err %v), want false — nothing is processed yet", found, err)
+		t.Fatalf("found = %t (err %v), want false. Nothing is processed yet", found, err)
 	}
 
 	if err := s.RecordBillingEvent(billingEvent("key-old", "sub-1", older)); err != nil {
@@ -266,7 +266,7 @@ func TestDeleteOldBillingEvents(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 	if n != 1 {
-		t.Fatalf("deleted %d, want 1 — only the out-of-window row", n)
+		t.Fatalf("deleted %d, want 1. Only the out-of-window row", n)
 	}
 
 	// The fresh row survives, so its key still collides.

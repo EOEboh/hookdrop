@@ -89,7 +89,7 @@ func TestDeliverUnreachableTarget(t *testing.T) {
 
 func TestEnqueueOverflowDropsInsteadOfBlocking(t *testing.T) {
 	f := New("http://127.0.0.1:1", func(Result) {})
-	// worker not started — queue just fills
+	// worker not started. Queue just fills
 	for i := 0; i < queueSize; i++ {
 		if !f.Enqueue(&api.CapturedRequest{}) {
 			t.Fatalf("enqueue %d should succeed", i)

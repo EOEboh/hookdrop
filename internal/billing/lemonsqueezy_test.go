@@ -35,7 +35,7 @@ func handle(t *testing.T, payload string) (*WebhookEvent, error) {
 }
 
 // subscriptionPayload mirrors the shape Lemonsqueezy actually sends for
-// subscription events. Note first_subscription_item is null — that is what a
+// subscription events. Note first_subscription_item is null. That is what a
 // subscription on a free trial looks like.
 const trialCreatedPayload = `{
   "meta": {
@@ -100,7 +100,7 @@ func TestHandleWebhook_TrialSubscriptionCreated(t *testing.T) {
 	if ev.Status != "trialing" {
 		t.Errorf("Status = %q, want trialing", ev.Status)
 	}
-	// The customer ID must be the LS customer, not the order or subscription —
+	// The customer ID must be the LS customer, not the order or subscription.
 	// GetPortalURL calls GET /customers/{id} with it.
 	if ev.CustomerID != "4210987" {
 		t.Errorf("CustomerID = %q, want 4210987 (customer_id, not order_id)", ev.CustomerID)
@@ -112,7 +112,7 @@ func TestHandleWebhook_TrialSubscriptionCreated(t *testing.T) {
 		t.Errorf("Interval = %q, want month", ev.Interval)
 	}
 	if ev.TrialEnd == 0 {
-		t.Error("TrialEnd = 0, want the parsed trial_ends_at — a nil trial_end renders 'Trial ends soon' forever")
+		t.Error("TrialEnd = 0, want the parsed trial_ends_at. A nil trial_end renders 'Trial ends soon' forever")
 	}
 	if want := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC).Unix(); ev.TrialEnd != want {
 		t.Errorf("TrialEnd = %d, want %d", ev.TrialEnd, want)
@@ -172,7 +172,7 @@ func TestHandleWebhook_IgnoresNonSubscriptionEvents(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if ev != nil {
-				t.Fatalf("expected nil event, got %+v — this would corrupt the subscriptions row", ev)
+				t.Fatalf("expected nil event, got %+v. This would corrupt the subscriptions row", ev)
 			}
 		})
 	}
@@ -193,7 +193,7 @@ func TestHandleWebhook_CancelKeepsAccessUntilEndsAt(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if ev.Type == "subscription.canceled" {
-		t.Error("subscription_cancelled mapped to subscription.canceled — that drops the customer to free during a grace period they paid for")
+		t.Error("subscription_cancelled mapped to subscription.canceled. That drops the customer to free during a grace period they paid for")
 	}
 	if ev.Type != "subscription.updated" {
 		t.Errorf("Type = %q, want subscription.updated", ev.Type)
@@ -229,7 +229,7 @@ func TestHandleWebhook_ExpiredDowngrades(t *testing.T) {
 		t.Errorf("Type = %q, want subscription.canceled", ev.Type)
 	}
 	if ev.Status != "canceled" {
-		t.Errorf("Status = %q, want canceled — an expired subscription reported as active keeps Pro forever", ev.Status)
+		t.Errorf("Status = %q, want canceled. An expired subscription reported as active keeps Pro forever", ev.Status)
 	}
 }
 

@@ -12,7 +12,7 @@ export function ManageSubscriptionPanel({
   const { subscription, isTrialing, refetch } = useBilling()
 
   // A subscription paid for with a method that cannot be charged again has
-  // nothing to cancel — Paystack holds no subscription for it. Offering the
+  // nothing to cancel. Paystack holds no subscription for it. Offering the
   // button would mark the row cancelled for no reason and log that the
   // provider was never notified.
   const willNotRenew = subscription?.auto_renews === false
@@ -123,7 +123,7 @@ export function ManageSubscriptionPanel({
         </p>
       )}
 
-      {/* Cancel — hidden once cancelled, and for one-off payments */}
+      {/* Cancel. Hidden once cancelled, and for one-off payments */}
       {!subscription?.cancel_at_period_end && !willNotRenew && (
         <div className="space-y-2">
           <button

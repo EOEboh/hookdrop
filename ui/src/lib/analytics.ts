@@ -23,7 +23,7 @@ export type AnalyticsEvent =
   | 'upgrade_prompt_seen'
   | 'checkout_started'
   | 'checkout_completed'
-  // Payment succeeded but activation did not — the customer was charged and
+  // Payment succeeded but activation did not. The customer was charged and
   // is still on the free plan, so this needs to be visible.
   | 'checkout_verification_failed'
   | 'trial_started'

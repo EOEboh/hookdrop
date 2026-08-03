@@ -69,7 +69,7 @@ func (s *Sender) SendMagicLink(toEmail, magicURL string) error {
 
 	if resp.StatusCode >= 400 {
 		// Include the body and the recipient. Resend explains its rejections
-		// there — reporting the bare status code made a recurring 422
+		// there. Reporting the bare status code made a recurring 422
 		// impossible to diagnose.
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return fmt.Errorf("resend API error %d sending to %s: %s",

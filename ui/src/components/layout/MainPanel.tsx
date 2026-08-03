@@ -10,7 +10,7 @@ interface Props {
 
 export function MainPanel({ selected, activeEndpoint = null }: Props) {
   if (!selected) {
-    // No request selected yet, but a named endpoint is active — let the user
+    // No request selected yet, but a named endpoint is active. Let the user
     // configure verification secrets before any webhook has ever arrived.
     if (activeEndpoint) {
       return (

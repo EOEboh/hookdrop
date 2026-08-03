@@ -14,8 +14,8 @@ const OVERLAY_COLOR = 'rgba(9, 9, 14, 0.72)'
  * around the padded target rect, leaving a literal gap over the target
  * itself. Unlike a single full-screen blocker + z-index bump on the
  * target, this never depends on the target's ancestors *not* creating
- * their own stacking context (e.g. the sidebar's `sticky` positioning) —
- * the real target element is simply never covered by anything, so it
+ * their own stacking context (e.g. the sidebar's `sticky` positioning).
+ * The real target element is simply never covered by anything, so it
  * stays natively interactive with zero DOM/class mutation.
  */
 function ClickBlockerFrame({ rect }: { rect: DOMRect }) {

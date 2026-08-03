@@ -80,7 +80,7 @@ func verifyStripe(req *models.CapturedRequest, secret string) Result {
 		return Result{Status: "failed", Provider: provider, Reason: "malformed Stripe-Signature header"}
 	}
 
-	// Reject timestamps older than 5 minutes — replay attack protection
+	// Reject timestamps older than 5 minutes. Replay attack protection
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
 		return Result{Status: "failed", Provider: provider, Reason: "invalid timestamp"}
@@ -89,7 +89,7 @@ func verifyStripe(req *models.CapturedRequest, secret string) Result {
 		return Result{
 			Status:   "failed",
 			Provider: provider,
-			Reason:   fmt.Sprintf("timestamp too old (%ds) — possible replay attack", time.Now().Unix()-ts),
+			Reason:   fmt.Sprintf("timestamp too old (%ds). Possible replay attack", time.Now().Unix()-ts),
 		}
 	}
 
@@ -117,7 +117,7 @@ func verifyPaystack(req *models.CapturedRequest, secret string) Result {
 	expected := computeHMAC(sha512.New, string(req.Body), secret)
 	match := hmac.Equal([]byte(expected), []byte(sigHeader))
 
-	// TEMP DEBUG — remove once the Paystack verification-failure bug is resolved.
+	// TEMP DEBUG. Remove once the Paystack verification-failure bug is resolved.
 	// Never logs the secret itself, only its length.
 	log.Printf("[paystack-verify-debug] secret_len=%d received_sig=%s computed_sig=%s match=%t",
 		len(secret), sigHeader, expected, match)

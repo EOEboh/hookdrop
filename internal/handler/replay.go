@@ -44,7 +44,7 @@ func (h *ReplayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ownership check on the captured request's session/endpoint — foreign
+	// Ownership check on the captured request's session/endpoint. Foreign
 	// requests return the same 404 as missing ones.
 	user := middleware.GetUser(r)
 	if _, ok := h.Store.ResolveIdentifierForUser(original.SessionID, user.ID); !ok {

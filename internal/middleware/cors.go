@@ -8,10 +8,10 @@ import (
 
 func CORS(next http.Handler, allowedOrigins string) http.Handler {
 	if allowedOrigins == "" {
-		log.Fatal("CORS: ALLOWED_ORIGIN is not set — refusing to start with open CORS")
+		log.Fatal("CORS: ALLOWED_ORIGIN is not set. Refusing to start with open CORS")
 	}
 
-	// Build a lookup map — supports comma-separated list of origins
+	// Build a lookup map. Supports comma-separated list of origins
 	// e.g. "https://hookdrop.app,https://www.hookdrop.app"
 	allowed := make(map[string]bool)
 	for _, origin := range strings.Split(allowedOrigins, ",") {
@@ -36,7 +36,7 @@ func CORS(next http.Handler, allowedOrigins string) http.Handler {
 			log.Printf("CORS: rejected origin %q (allowed: %v)", origin, allowedOrigins)
 		}
 
-		// Always handle preflight — even for rejected origins, return 204
+		// Always handle preflight. Even for rejected origins, return 204
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

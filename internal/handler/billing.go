@@ -185,7 +185,7 @@ func (h *BillingHandler) handleWebhook(
 	route webhookRoute,
 ) {
 	// MaxBytesReader errors on an oversized body rather than silently
-	// truncating it — a truncated payload would fail signature verification
+	// truncating it. A truncated payload would fail signature verification
 	// and be reported as a forgery.
 	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
@@ -222,7 +222,7 @@ func (h *BillingHandler) handleWebhook(
 	if event != nil {
 		record.UserID = event.UserID
 		// Scope the ordering check by subscription where there is one, else by
-		// customer — charge.success identifies only the customer.
+		// customer, charge.success identifies only the customer.
 		record.ObjectID = event.SubscriptionID
 		if record.ObjectID == "" {
 			record.ObjectID = event.CustomerID
@@ -237,7 +237,7 @@ func (h *BillingHandler) handleWebhook(
 	case errors.Is(err, store.ErrDuplicateBillingEvent):
 		// The provider retried something we already have. 200 stops the
 		// retries; re-processing would be wasted work at best.
-		log.Printf("%s webhook: duplicate delivery %s (%s) — already recorded",
+		log.Printf("%s webhook: duplicate delivery %s (%s). Already recorded",
 			route.provider, eventType, eventKey[:12])
 		writeWebhookOK(w)
 		return
@@ -275,7 +275,7 @@ func (h *BillingHandler) handleWebhook(
 			return
 		}
 	} else {
-		log.Printf("%s webhook: %s carries no timestamp — no ordering protection",
+		log.Printf("%s webhook: %s carries no timestamp. No ordering protection",
 			route.provider, eventType)
 	}
 
@@ -333,7 +333,7 @@ func (h *BillingHandler) processWebhookEvent(
 
 	// custom_data.user_id should always be present on subscription events, but
 	// if it ever isn't, recover the user from the subscription ID we already
-	// stored rather than dropping the event on the floor — a dropped
+	// stored rather than dropping the event on the floor. A dropped
 	// cancellation leaves a customer on Pro forever.
 	if userID == "" {
 		existing, via, err := h.resolveWebhookUser(event)
@@ -346,7 +346,7 @@ func (h *BillingHandler) processWebhookEvent(
 				providerName, event.Type, event.SubscriptionID, event.CustomerID)
 		}
 		userID = existing.UserID
-		log.Printf("WARNING: %s webhook %s carried no user_id — resolved user=%s via %s",
+		log.Printf("WARNING: %s webhook %s carried no user_id. Resolved user=%s via %s",
 			providerName, event.Type, userID, via)
 	}
 
@@ -355,7 +355,7 @@ func (h *BillingHandler) processWebhookEvent(
 		t := time.Unix(event.PeriodEnd, 0)
 		periodEnd = &t
 	} else if existing, err := h.Store.GetSubscription(userID); err == nil {
-		// Not every event moves the period — a failed renewal reports no new
+		// Not every event moves the period. A failed renewal reports no new
 		// date. The upsert writes every column, so passing nil would blank
 		// current_period_end, and a nil period grants access indefinitely.
 		// That would turn the expiry gate off for exactly the subscriptions it
@@ -487,7 +487,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if body.Interval != "" && body.Interval != interval {
-		log.Printf("VerifyPaystack: client claimed interval=%q, plan %s says %q — using %q",
+		log.Printf("VerifyPaystack: client claimed interval=%q, plan %s says %q. Using %q",
 			body.Interval, tx.Plan.Code, interval, interval)
 	}
 
@@ -498,8 +498,8 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	switch {
 	case !tx.Plan.AmountKnown:
 		// Paystack returned a bare plan code with no plan object. The plan
-		// code check above already carries the weight here — attaching our
-		// plan code makes Paystack charge that plan's price — so accept, but
+		// code check above already carries the weight here. Attaching our
+		// plan code makes Paystack charge that plan's price, so accept, but
 		// say so.
 		log.Printf("WARNING: VerifyPaystack: plan %s amount unknown, cannot cross-check charge of %d (user=%s ref=%s)",
 			tx.Plan.Code, tx.Amount, user.ID, body.Reference)
@@ -536,14 +536,14 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "this payment has already been redeemed", http.StatusConflict)
 		return
 	}
-	// Same user re-verifying must not fail — a double submit or a retried
-	// handlePaystackSuccess should not lock a paying customer out. But it must
+	// Same user re-verifying must not fail. A double submit or a retried
+	// handlePaystackSuccess should not lock a paying customer out, but it must
 	// not be *applied* twice either: the period is extended from whatever is
 	// left, so replaying a reference would hand out free time.
 	//
 	// Recording the verification claims the reference. The UNIQUE index on
 	// event_key decides, which is stronger than comparing against
-	// provider_sub_id — that only remembers the most recent reference and
+	// provider_sub_id. That only remembers the most recent reference and
 	// would let an older one be replayed after a renewal.
 	claim := sha256.Sum256([]byte("paystack-verify:" + body.Reference))
 	claimKey := hex.EncodeToString(claim[:])
@@ -556,7 +556,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		ObjectID:  tx.CustomerCode,
 	}); {
 	case errors.Is(err, store.ErrDuplicateBillingEvent):
-		log.Printf("VerifyPaystack: reference %s already applied for user=%s — returning current state",
+		log.Printf("VerifyPaystack: reference %s already applied for user=%s. Returning current state",
 			body.Reference, user.ID)
 		current, err := h.Store.GetSubscription(user.ID)
 		if err != nil {
@@ -583,16 +583,16 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 
 	// Paystack subscriptions require an authorization that can be charged
 	// again. A bank transfer cannot, so Paystack takes the plan amount once
-	// and creates no subscription — the customer has bought a single period.
+	// and creates no subscription. The customer has bought a single period.
 	// They keep what they paid for; the UI has to stop calling it a
 	// subscription.
 	if !tx.Reusable {
-		log.Printf("VerifyPaystack: %s payment is not reusable — user=%s gets one period and will NOT auto-renew",
+		log.Printf("VerifyPaystack: %s payment is not reusable. User=%s gets one period and will NOT auto-renew",
 			tx.Channel, user.ID)
 	}
 
 	// NGN pricing is substantially cheaper than USD, and the currency is
-	// chosen client-side — localStorage hookdrop_currency is enough to pick
+	// chosen client-side. LocalStorage hookdrop_currency is enough to pick
 	// it. The card's country is the only server-side evidence of where the
 	// payer really is.
 	//
@@ -601,7 +601,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// a worse failure than the mispricing. This makes the exposure visible so
 	// it can be judged on evidence.
 	if tx.CardCountry != "" && !billing.PaystackCountries[tx.CardCountry] {
-		log.Printf("WARNING: VerifyPaystack: NGN pricing paid with a %s card — user=%s ref=%s customer=%s payer_ip=%s (review: possible currency mispricing)",
+		log.Printf("WARNING: VerifyPaystack: NGN pricing paid with a %s card. User=%s ref=%s customer=%s payer_ip=%s (review: possible currency mispricing)",
 			tx.CardCountry, user.ID, body.Reference, tx.CustomerCode, tx.PayerIP)
 	}
 
@@ -615,7 +615,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// Stack onto whatever is left rather than restarting from now. A
 	// non-recurring subscription is renewed by paying again, and someone who
 	// renews early should not silently lose the days they already had.
-	// An expired period is not carried forward — that would backdate the
+	// An expired period is not carried forward. That would backdate the
 	// renewal to a date already passed.
 	base := now
 	if current, err := h.Store.GetSubscription(user.ID); err == nil &&
@@ -647,7 +647,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		CreatedAt:          now,
 	}
 
-	log.Printf("VerifyPaystack: upserting — user=%s plan=pro status=%s customer=%s",
+	log.Printf("VerifyPaystack: upserting. User=%s plan=pro status=%s customer=%s",
 		user.ID, subStatus, customerCode)
 
 	if err := h.Store.UpsertSubscription(sub); err != nil {
@@ -656,7 +656,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	log.Printf("VerifyPaystack: upsert SUCCESS — user=%s is now Pro (status=%s)",
+	log.Printf("VerifyPaystack: upsert SUCCESS. User=%s is now Pro (status=%s)",
 		user.ID, subStatus)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -717,7 +717,7 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 	}
 
 	if sub.CancelAtPeriodEnd {
-		// Already scheduled for cancellation — return success idempotently
+		// Already scheduled for cancellation. Return success idempotently
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"cancelled":            true,
@@ -747,11 +747,11 @@ func (h *BillingHandler) CancelSubscription(w http.ResponseWriter, r *http.Reque
 		} else {
 			// There is nothing callable. Honour the intent locally, but say
 			// plainly that the provider was not told and is still billing.
-			log.Printf("WARNING: CancelSubscription: user=%s has no Paystack subscription code (provider_sub_id=%q) — cancelled locally only; Paystack was NOT notified and will keep billing",
+			log.Printf("WARNING: CancelSubscription: user=%s has no Paystack subscription code (provider_sub_id=%q). Cancelled locally only; Paystack was NOT notified and will keep billing",
 				user.ID, sub.ProviderSubID)
 		}
 	} else {
-		// LemonSqueezy — use stored sub ID directly.
+		// LemonSqueezy. Use stored sub ID directly.
 		//
 		// This one is NOT best-effort: if the DELETE fails, Lemonsqueezy keeps
 		// billing the customer. Marking them cancelled locally would show them

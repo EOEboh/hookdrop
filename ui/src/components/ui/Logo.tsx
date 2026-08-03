@@ -15,8 +15,8 @@ const WORDMARK_SIZE: Record<LogoSize, string> = {
 }
 
 /**
- * Custom hookdrop mark: a fishhook whose eye is shaped like a water drop —
- * the "eye" of a real hook (the loop line is tied through) doubles as the
+ * Custom hookdrop mark: a fishhook whose eye is shaped like a water drop.
+ * The "eye" of a real hook (the loop line is tied through) doubles as the
  * "drop" of hookdrop, with the shank curving into the hook's bend and barb
  * below it. Drawn as a single monoline stroke (no fill), so it reads as a
  * clean line-art mark rather than a filled icon.

@@ -11,7 +11,7 @@ interface Props {
 }
 
 // Abstract, geometric illustrations built from simple shapes tinted with the
-// indigo/violet accent — no stock art, no emoji, matches the new palette.
+// indigo/violet accent. No stock art, no emoji, matches the new palette.
 
 function FeedIllustration() {
   return (
