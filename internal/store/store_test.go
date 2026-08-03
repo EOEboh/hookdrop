@@ -290,7 +290,10 @@ func seedSub(t *testing.T, s *Store, email, provider, subID string) *models.Subs
 		Status:             "active",
 		Currency:           "ngn",
 		Interval:           "month",
-		CreatedAt:          time.Now().UTC(),
+		// Explicit: the zero value is false, which would mean "does not
+		// renew" and quietly exclude the row from the repair selection.
+		AutoRenews: true,
+		CreatedAt:  time.Now().UTC(),
 	}
 	if err := s.UpsertSubscription(sub); err != nil {
 		t.Fatalf("seed subscription: %v", err)
@@ -361,5 +364,40 @@ func TestRepairPaystackSubscription(t *testing.T) {
 	rows, _ := s.ListPaystackSubscriptionsNeedingRepair()
 	if len(rows) != 0 {
 		t.Errorf("%d rows still need repair after repairing them all", len(rows))
+	}
+}
+
+// A row already marked non-recurring has been reconciled. It will never gain a
+// SUB_ code, so leaving it selected means the repair reports outstanding work
+// for ever and the "nothing to do" signal becomes meaningless.
+func TestListPaystackSubscriptionsSkipsReconciledRows(t *testing.T) {
+	s := newTestStore(t)
+
+	sub := seedSub(t, s, "transfer@example.com", "paystack", "T981099203072787")
+
+	rows, err := s.ListPaystackSubscriptionsNeedingRepair()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("selected %d rows before repair, want 1", len(rows))
+	}
+
+	if err := s.MarkSubscriptionNonRecurring(sub.ID); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+
+	rows, err = s.ListPaystackSubscriptionsNeedingRepair()
+	if err != nil {
+		t.Fatalf("list after repair: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("still selected after being marked non-recurring: %d rows", len(rows))
+	}
+
+	// The flag itself must have stuck.
+	got, _ := s.GetSubscription(sub.UserID)
+	if got.AutoRenews {
+		t.Error("auto_renews reverted to true")
 	}
 }
