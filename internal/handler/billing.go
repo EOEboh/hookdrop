@@ -611,7 +611,19 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// charged and is active from now. trial_end stays nil; only the Lemon
 	// Squeezy path produces trialing subscriptions.
 	subStatus := "active"
-	pe := now.Add(billing.PaystackBillingPeriod(interval))
+
+	// Stack onto whatever is left rather than restarting from now. A
+	// non-recurring subscription is renewed by paying again, and someone who
+	// renews early should not silently lose the days they already had.
+	// An expired period is not carried forward — that would backdate the
+	// renewal to a date already passed.
+	base := now
+	if current, err := h.Store.GetSubscription(user.ID); err == nil &&
+		current.CurrentPeriodEnd != nil &&
+		current.CurrentPeriodEnd.After(now) {
+		base = *current.CurrentPeriodEnd
+	}
+	pe := base.Add(billing.PaystackBillingPeriod(interval))
 	periodEnd := &pe
 
 	customerCode := tx.CustomerCode

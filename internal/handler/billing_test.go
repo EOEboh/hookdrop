@@ -901,3 +901,70 @@ func TestVerifyPaystack_ReplayingAReferenceDoesNotApplyTwice(t *testing.T) {
 			firstEnd, after.CurrentPeriodEnd)
 	}
 }
+
+// Renewing before expiry stacks onto the remaining time. Restarting from now
+// would silently take back days the customer had already paid for.
+func TestVerifyPaystack_RenewalExtendsFromTheCurrentExpiry(t *testing.T) {
+	h, user := newBillingTestHandler(t,
+		verifyBodyReusable(testPlanMonthly, monthlyKobo, monthlyKobo, "bank_transfer", false))
+
+	// 20 days still to run.
+	existing := time.Now().UTC().Add(20 * 24 * time.Hour).Truncate(time.Second)
+	if err := h.Store.UpsertSubscription(&models.Subscription{
+		UserID: user.ID, Plan: "pro", Provider: "paystack",
+		ProviderCustomerID: "CUS_1", ProviderSubID: "T_earlier",
+		Status: "active", CurrentPeriodEnd: &existing,
+		Currency: "ngn", Interval: "month", CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
+		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	want := existing.Add(30 * 24 * time.Hour)
+	if sub.CurrentPeriodEnd == nil || sub.CurrentPeriodEnd.Sub(want).Abs() > time.Minute {
+		t.Errorf("current_period_end = %v, want ~%v (old expiry + one month)",
+			sub.CurrentPeriodEnd, want)
+	}
+	// Restarting from now would land ~20 days earlier.
+	if sub.CurrentPeriodEnd.Before(existing) {
+		t.Error("the renewal took back time the customer had already paid for")
+	}
+}
+
+// An expired period must not be carried forward — that would backdate the
+// renewal to a date already gone.
+func TestVerifyPaystack_RenewalAfterExpiryStartsFromNow(t *testing.T) {
+	h, user := newBillingTestHandler(t,
+		verifyBodyReusable(testPlanMonthly, monthlyKobo, monthlyKobo, "bank_transfer", false))
+
+	lapsed := time.Now().UTC().Add(-10 * 24 * time.Hour).Truncate(time.Second)
+	if err := h.Store.UpsertSubscription(&models.Subscription{
+		UserID: user.ID, Plan: "pro", Provider: "paystack",
+		ProviderCustomerID: "CUS_1", ProviderSubID: "T_earlier",
+		Status: "active", CurrentPeriodEnd: &lapsed,
+		Currency: "ngn", Interval: "month", CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
+		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	sub, _ := h.Store.GetSubscription(user.ID)
+	want := time.Now().UTC().Add(30 * 24 * time.Hour)
+	if sub.CurrentPeriodEnd.Sub(want).Abs() > time.Minute {
+		t.Errorf("current_period_end = %v, want ~%v (a full period from today)",
+			sub.CurrentPeriodEnd, want)
+	}
+}
