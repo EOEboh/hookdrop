@@ -34,6 +34,22 @@ func verifyBody(status, email, planCode string, amount, planAmount int) string {
 	return verifyBodyFrom(status, email, planCode, amount, planAmount, "NG")
 }
 
+// verifyBodyReusable builds a response for a given payment channel.
+// reusable=false is what a Paystack bank transfer produces: the plan is
+// charged once and no subscription is created.
+func verifyBodyReusable(planCode string, amount, planAmount int, channel string, reusable bool) string {
+	return fmt.Sprintf(`{
+      "status": true,
+      "data": {
+        "id": 1, "status": "success", "amount": %d, "currency": "NGN",
+        "reference": "T_ref", "ip_address": "102.90.1.1",
+        "authorization": {"country_code": "NG", "channel": %q, "reusable": %t},
+        "customer": {"customer_code": "CUS_1", "email": "buyer@example.com"},
+        "plan": %q, "plan_object": {"plan_code": %q, "amount": %d}
+      }
+    }`, amount, channel, reusable, planCode, planCode, planAmount)
+}
+
 // verifyBodyFrom lets a test set the card's issuing country.
 func verifyBodyFrom(status, email, planCode string, amount, planAmount int, cardCountry string) string {
 	return fmt.Sprintf(`{
@@ -771,5 +787,81 @@ func TestVerifyPaystack_ForeignCardOnNgnPricingIsAllowedNotBlocked(t *testing.T)
 	sub, _ := h.Store.GetSubscription(user.ID)
 	if sub.Plan != "pro" {
 		t.Errorf("plan = %q, want pro", sub.Plan)
+	}
+}
+
+// A bank transfer cannot be charged again, so Paystack creates no
+// subscription. The customer still gets the period they paid for, but the row
+// must record that it will not renew.
+func TestVerifyPaystack_NonReusablePaymentIsGrantedButNotRecurring(t *testing.T) {
+	h, user := newBillingTestHandler(t,
+		verifyBodyReusable(testPlanMonthly, monthlyKobo, monthlyKobo, "bank_transfer", false))
+
+	rec := httptest.NewRecorder()
+	h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
+		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200 — they paid, they get the period: %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.Plan != "pro" || sub.Status != "active" {
+		t.Errorf("plan/status = %s/%s, want pro/active", sub.Plan, sub.Status)
+	}
+	if sub.AutoRenews {
+		t.Error("auto_renews = true for a bank transfer — it cannot be charged again")
+	}
+}
+
+func TestVerifyPaystack_CardPaymentRecurs(t *testing.T) {
+	h, user := newBillingTestHandler(t,
+		verifyBodyReusable(testPlanMonthly, monthlyKobo, monthlyKobo, "card", true))
+
+	rec := httptest.NewRecorder()
+	h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
+		`{"reference":"T_ref","plan":"pro","interval":"month"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if !sub.AutoRenews {
+		t.Error("auto_renews = false for a reusable card authorization")
+	}
+}
+
+// A webhook cannot see the authorization, so it must never flip the flag.
+func TestPaystackWebhookPreservesAutoRenews(t *testing.T) {
+	h, user := newPaystackWebhookHandler(t)
+
+	period := time.Now().UTC().Add(10 * 24 * time.Hour).Truncate(time.Second)
+	if err := h.Store.UpsertSubscription(&models.Subscription{
+		UserID:             user.ID,
+		Plan:               "pro",
+		Provider:           "paystack",
+		ProviderCustomerID: "CUS_keep",
+		ProviderSubID:      "SUB_keep",
+		Status:             "active",
+		CurrentPeriodEnd:   &period,
+		Currency:           "ngn",
+		Interval:           "month",
+		AutoRenews:         false, // paid by transfer
+		CreatedAt:          time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	payload := fmt.Sprintf(`{"event":"charge.success","data":{
+      "reference":"T_later","amount":%d,"currency":"NGN","status":"success",
+      "paid_at":%q,"metadata":0,
+      "customer":{"customer_code":"CUS_keep","email":"ngn@example.com"},
+      "plan":%q,"plan_object":{"plan_code":%q,"amount":%d,"interval":"monthly"}}}`,
+		monthlyKobo, time.Now().UTC().Format(time.RFC3339), testPlanMonthly, testPlanMonthly, monthlyKobo)
+
+	if rec := postPaystackWebhook(t, h, payload); rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := h.Store.GetSubscription(user.ID)
+	if sub.AutoRenews {
+		t.Error("a webhook flipped auto_renews to true — it cannot see the authorization")
 	}
 }

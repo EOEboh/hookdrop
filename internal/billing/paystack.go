@@ -585,6 +585,13 @@ type PaystackTransaction struct {
 	CardCountry string
 	// PayerIP is the address Paystack saw the payment come from.
 	PayerIP string
+	// Channel is how it was paid: card, bank_transfer, ussd and so on.
+	Channel string
+	// Reusable reports whether the authorization can be charged again.
+	// Paystack subscriptions need one that can — bank transfer produces
+	// reusable=false, so the plan is charged once and no subscription is
+	// created at all.
+	Reusable bool
 	// Plan carries the plan code and, when Paystack told us, its amount.
 	Plan PaystackPlanInfo
 }
@@ -621,6 +628,8 @@ type paystackVerifyResponse struct {
 		} `json:"customer"`
 		Authorization struct {
 			CountryCode string `json:"country_code"`
+			Channel     string `json:"channel"`
+			Reusable    bool   `json:"reusable"`
 		} `json:"authorization"`
 		Plan       json.RawMessage `json:"plan"`
 		PlanObject json.RawMessage `json:"plan_object"`
@@ -742,6 +751,8 @@ func (p *PaystackProvider) VerifyTransaction(
 			CustomerCode: out.Data.Customer.CustomerCode,
 			CardCountry:  strings.ToUpper(strings.TrimSpace(out.Data.Authorization.CountryCode)),
 			PayerIP:      out.Data.IPAddress,
+			Channel:      out.Data.Authorization.Channel,
+			Reusable:     out.Data.Authorization.Reusable,
 			Plan:         planInfo,
 		}, nil
 	}

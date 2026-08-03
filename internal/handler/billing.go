@@ -392,9 +392,14 @@ func (h *BillingHandler) processWebhookEvent(
 	// charge.success names no subscription, so renewals carry an empty
 	// SubscriptionID. The upsert writes every column, so passing it through
 	// would blank the stored subscription code and break cancellation.
+	//
+	// auto_renews is decided by VerifyPaystack and the repair pass, which see
+	// the authorization. A webhook does not, so it must never overwrite it.
 	providerSubID := event.SubscriptionID
-	if providerSubID == "" {
-		if existing, err := h.Store.GetSubscription(userID); err == nil {
+	autoRenews := true
+	if existing, err := h.Store.GetSubscription(userID); err == nil {
+		autoRenews = existing.AutoRenews
+		if providerSubID == "" {
 			providerSubID = existing.ProviderSubID
 		}
 	}
@@ -411,6 +416,7 @@ func (h *BillingHandler) processWebhookEvent(
 		Currency:           event.Currency,
 		Interval:           event.Interval,
 		CancelAtPeriodEnd:  event.CancelAtEnd,
+		AutoRenews:         autoRenews,
 		CreatedAt:          time.Now().UTC(),
 	}
 
@@ -533,8 +539,19 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// Same user re-verifying is idempotent: a double submit or a retried
 	// handlePaystackSuccess must not lock a paying customer out.
 
-	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d card_country=%s payer_ip=%s",
-		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount, tx.CardCountry, tx.PayerIP)
+	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d card_country=%s channel=%s reusable=%t payer_ip=%s",
+		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount,
+		tx.CardCountry, tx.Channel, tx.Reusable, tx.PayerIP)
+
+	// Paystack subscriptions require an authorization that can be charged
+	// again. A bank transfer cannot, so Paystack takes the plan amount once
+	// and creates no subscription — the customer has bought a single period.
+	// They keep what they paid for; the UI has to stop calling it a
+	// subscription.
+	if !tx.Reusable {
+		log.Printf("VerifyPaystack: %s payment is not reusable — user=%s gets one period and will NOT auto-renew",
+			tx.Channel, user.ID)
+	}
 
 	// NGN pricing is substantially cheaper than USD, and the currency is
 	// chosen client-side — localStorage hookdrop_currency is enough to pick
@@ -576,6 +593,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		Currency:           "ngn",
 		Interval:           interval,
 		CancelAtPeriodEnd:  false,
+		AutoRenews:         tx.Reusable,
 		CreatedAt:          now,
 	}
 

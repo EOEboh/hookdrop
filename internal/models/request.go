@@ -85,10 +85,14 @@ type Subscription struct {
 	CurrentPeriodEnd   *time.Time `json:"current_period_end"`
 	TrialEnd           *time.Time `json:"trial_end"`
 	CancelAtPeriodEnd  bool       `json:"cancel_at_period_end"`
-	Currency           string     `json:"currency"`
-	Interval           string     `json:"interval"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	// AutoRenews is false when the payment method cannot be charged again —
+	// a Paystack bank transfer, for example. Such a subscription is a single
+	// paid period that will simply expire, and the UI must say so.
+	AutoRenews bool      `json:"auto_renews"`
+	Currency   string    `json:"currency"`
+	Interval   string    `json:"interval"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // BillingEvent is one inbound provider webhook, recorded before it is
