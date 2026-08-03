@@ -392,9 +392,14 @@ func (h *BillingHandler) processWebhookEvent(
 	// charge.success names no subscription, so renewals carry an empty
 	// SubscriptionID. The upsert writes every column, so passing it through
 	// would blank the stored subscription code and break cancellation.
+	//
+	// auto_renews is decided by VerifyPaystack and the repair pass, which see
+	// the authorization. A webhook does not, so it must never overwrite it.
 	providerSubID := event.SubscriptionID
-	if providerSubID == "" {
-		if existing, err := h.Store.GetSubscription(userID); err == nil {
+	autoRenews := true
+	if existing, err := h.Store.GetSubscription(userID); err == nil {
+		autoRenews = existing.AutoRenews
+		if providerSubID == "" {
 			providerSubID = existing.ProviderSubID
 		}
 	}
@@ -411,6 +416,7 @@ func (h *BillingHandler) processWebhookEvent(
 		Currency:           event.Currency,
 		Interval:           event.Interval,
 		CancelAtPeriodEnd:  event.CancelAtEnd,
+		AutoRenews:         autoRenews,
 		CreatedAt:          time.Now().UTC(),
 	}
 
@@ -530,11 +536,60 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "this payment has already been redeemed", http.StatusConflict)
 		return
 	}
-	// Same user re-verifying is idempotent: a double submit or a retried
-	// handlePaystackSuccess must not lock a paying customer out.
+	// Same user re-verifying must not fail — a double submit or a retried
+	// handlePaystackSuccess should not lock a paying customer out. But it must
+	// not be *applied* twice either: the period is extended from whatever is
+	// left, so replaying a reference would hand out free time.
+	//
+	// Recording the verification claims the reference. The UNIQUE index on
+	// event_key decides, which is stronger than comparing against
+	// provider_sub_id — that only remembers the most recent reference and
+	// would let an older one be replayed after a renewal.
+	claim := sha256.Sum256([]byte("paystack-verify:" + body.Reference))
+	claimKey := hex.EncodeToString(claim[:])
+	switch err := h.Store.RecordBillingEvent(&models.BillingEvent{
+		UserID:    user.ID,
+		Provider:  "paystack",
+		EventType: "verify",
+		Payload:   body.Reference,
+		EventKey:  claimKey,
+		ObjectID:  tx.CustomerCode,
+	}); {
+	case errors.Is(err, store.ErrDuplicateBillingEvent):
+		log.Printf("VerifyPaystack: reference %s already applied for user=%s — returning current state",
+			body.Reference, user.ID)
+		current, err := h.Store.GetSubscription(user.ID)
+		if err != nil {
+			http.Error(w, "store error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"plan":      current.Plan,
+			"status":    current.Status,
+			"is_trial":  false,
+			"trial_end": nil,
+		})
+		return
+	case err != nil:
+		log.Printf("VerifyPaystack: could not claim reference %s: %v", body.Reference, err)
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
 
-	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d card_country=%s payer_ip=%s",
-		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount, tx.CardCountry, tx.PayerIP)
+	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d card_country=%s channel=%s reusable=%t payer_ip=%s",
+		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount,
+		tx.CardCountry, tx.Channel, tx.Reusable, tx.PayerIP)
+
+	// Paystack subscriptions require an authorization that can be charged
+	// again. A bank transfer cannot, so Paystack takes the plan amount once
+	// and creates no subscription — the customer has bought a single period.
+	// They keep what they paid for; the UI has to stop calling it a
+	// subscription.
+	if !tx.Reusable {
+		log.Printf("VerifyPaystack: %s payment is not reusable — user=%s gets one period and will NOT auto-renew",
+			tx.Channel, user.ID)
+	}
 
 	// NGN pricing is substantially cheaper than USD, and the currency is
 	// chosen client-side — localStorage hookdrop_currency is enough to pick
@@ -556,7 +611,19 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 	// charged and is active from now. trial_end stays nil; only the Lemon
 	// Squeezy path produces trialing subscriptions.
 	subStatus := "active"
-	pe := now.Add(billing.PaystackBillingPeriod(interval))
+
+	// Stack onto whatever is left rather than restarting from now. A
+	// non-recurring subscription is renewed by paying again, and someone who
+	// renews early should not silently lose the days they already had.
+	// An expired period is not carried forward — that would backdate the
+	// renewal to a date already passed.
+	base := now
+	if current, err := h.Store.GetSubscription(user.ID); err == nil &&
+		current.CurrentPeriodEnd != nil &&
+		current.CurrentPeriodEnd.After(now) {
+		base = *current.CurrentPeriodEnd
+	}
+	pe := base.Add(billing.PaystackBillingPeriod(interval))
 	periodEnd := &pe
 
 	customerCode := tx.CustomerCode
@@ -576,6 +643,7 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		Currency:           "ngn",
 		Interval:           interval,
 		CancelAtPeriodEnd:  false,
+		AutoRenews:         tx.Reusable,
 		CreatedAt:          now,
 	}
 

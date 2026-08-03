@@ -164,6 +164,7 @@ func (s *Store) migrate() error {
     current_period_end  DATETIME,
     trial_end           DATETIME,
     cancel_at_period_end INTEGER DEFAULT 0,
+    auto_renews         INTEGER DEFAULT 1,  -- 0 when the payment method cannot be charged again
     currency            TEXT DEFAULT 'usd',
     interval            TEXT DEFAULT 'month',  -- month or year
     created_at          DATETIME NOT NULL,
@@ -225,6 +226,10 @@ func (s *Store) migrate() error {
 		{"users", "billing_email", "TEXT"},
 		// billing_events gained these when webhook deduplication landed;
 		// deployed databases already have the narrower table.
+		// Paystack bank transfers cannot be charged again, so those
+		// subscriptions expire rather than renew. Defaults to 1 so existing
+		// rows and every Lemon Squeezy subscription are unaffected.
+		{"subscriptions", "auto_renews", "INTEGER DEFAULT 1"},
 		{"billing_events", "event_key", "TEXT"},
 		{"billing_events", "event_at", "DATETIME"},
 		{"billing_events", "object_id", "TEXT"},
@@ -706,14 +711,14 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 		SELECT id, user_id, plan, COALESCE(provider,''),
 		       COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
 		       status, current_period_end, trial_end,
-		       cancel_at_period_end, COALESCE(currency,'usd'),
+		       cancel_at_period_end, COALESCE(auto_renews,1), COALESCE(currency,'usd'),
 		       COALESCE(interval,'month'), created_at, updated_at
 		FROM subscriptions WHERE user_id = ?`, userID,
 	).Scan(
 		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
 		&sub.ProviderCustomerID, &sub.ProviderSubID,
 		&sub.Status, &sub.CurrentPeriodEnd, &sub.TrialEnd,
-		&sub.CancelAtPeriodEnd, &sub.Currency, &sub.Interval,
+		&sub.CancelAtPeriodEnd, &sub.AutoRenews, &sub.Currency, &sub.Interval,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -915,7 +920,7 @@ func (s *Store) ListPaystackSubscriptionsNeedingRepair() ([]*models.Subscription
 		SELECT id, user_id, plan, COALESCE(provider,''),
 		       COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
 		       status, current_period_end, trial_end,
-		       cancel_at_period_end, COALESCE(currency,'usd'),
+		       cancel_at_period_end, COALESCE(auto_renews,1), COALESCE(currency,'usd'),
 		       COALESCE(interval,'month'), created_at, updated_at
 		FROM subscriptions
 		WHERE provider = 'paystack'
@@ -933,7 +938,7 @@ func (s *Store) ListPaystackSubscriptionsNeedingRepair() ([]*models.Subscription
 			&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
 			&sub.ProviderCustomerID, &sub.ProviderSubID,
 			&sub.Status, &sub.CurrentPeriodEnd, &sub.TrialEnd,
-			&sub.CancelAtPeriodEnd, &sub.Currency, &sub.Interval,
+			&sub.CancelAtPeriodEnd, &sub.AutoRenews, &sub.Currency, &sub.Interval,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -954,9 +959,23 @@ func (s *Store) RepairPaystackSubscription(
 		SET provider_sub_id    = ?,
 		    status             = ?,
 		    current_period_end = ?,
+		    auto_renews        = 1,
 		    updated_at         = ?
 		WHERE id = ?`,
 		subscriptionCode, status, periodEnd, time.Now().UTC(), id,
+	)
+	return err
+}
+
+// MarkSubscriptionNonRecurring records that a subscription cannot renew.
+//
+// Used for Paystack rows whose customer has no subscription at all: the plan
+// was charged once against an authorization that cannot be reused, so the
+// period simply expires.
+func (s *Store) MarkSubscriptionNonRecurring(id string) error {
+	_, err := s.db.Exec(
+		`UPDATE subscriptions SET auto_renews = 0, updated_at = ? WHERE id = ?`,
+		time.Now().UTC(), id,
 	)
 	return err
 }
@@ -973,14 +992,14 @@ func (s *Store) subscriptionBy(column, value string) (*models.Subscription, erro
 		SELECT id, user_id, plan, COALESCE(provider,''),
 		       COALESCE(provider_customer_id,''), COALESCE(provider_sub_id,''),
 		       status, current_period_end, trial_end,
-		       cancel_at_period_end, COALESCE(currency,'usd'),
+		       cancel_at_period_end, COALESCE(auto_renews,1), COALESCE(currency,'usd'),
 		       COALESCE(interval,'month'), created_at, updated_at
 		FROM subscriptions WHERE `+column+` = ?`, value,
 	).Scan(
 		&sub.ID, &sub.UserID, &sub.Plan, &sub.Provider,
 		&sub.ProviderCustomerID, &sub.ProviderSubID,
 		&sub.Status, &sub.CurrentPeriodEnd, &sub.TrialEnd,
-		&sub.CancelAtPeriodEnd, &sub.Currency, &sub.Interval,
+		&sub.CancelAtPeriodEnd, &sub.AutoRenews, &sub.Currency, &sub.Interval,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -1006,8 +1025,8 @@ func (s *Store) UpsertSubscription(sub *models.Subscription) error {
 		INSERT INTO subscriptions
 			(id, user_id, plan, provider, provider_customer_id, provider_sub_id,
 			 status, current_period_end, trial_end, cancel_at_period_end,
-			 currency, interval, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 auto_renews, currency, interval, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 			plan                 = excluded.plan,
 			provider             = excluded.provider,
@@ -1017,13 +1036,14 @@ func (s *Store) UpsertSubscription(sub *models.Subscription) error {
 			current_period_end   = excluded.current_period_end,
 			trial_end            = excluded.trial_end,
 			cancel_at_period_end = excluded.cancel_at_period_end,
+			auto_renews          = excluded.auto_renews,
 			currency             = excluded.currency,
 			interval             = excluded.interval,
 			updated_at           = excluded.updated_at`,
 		sub.ID, sub.UserID, sub.Plan, sub.Provider,
 		sub.ProviderCustomerID, sub.ProviderSubID,
 		sub.Status, sub.CurrentPeriodEnd, sub.TrialEnd,
-		sub.CancelAtPeriodEnd, sub.Currency, sub.Interval,
+		sub.CancelAtPeriodEnd, sub.AutoRenews, sub.Currency, sub.Interval,
 		sub.CreatedAt, sub.UpdatedAt,
 	)
 	return err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/EOEboh/hookdrop/internal/billing"
@@ -47,6 +48,26 @@ func repairPaystackSubscriptions(
 		cancel()
 
 		if err != nil {
+			// A customer with no subscription at Paystack is a result, not a
+			// failure: they paid with an authorization that cannot be reused
+			// (a bank transfer), so there is nothing to reconcile and the
+			// period simply expires. Record that rather than reporting it as
+			// unreconcilable.
+			if strings.Contains(err.Error(), "no subscriptions") {
+				log.Printf("repair:   user=%s customer=%s has no Paystack subscription",
+					sub.UserID, sub.ProviderCustomerID)
+				log.Printf("repair:     auto_renews        %t -> false (paid once, will not renew)",
+					sub.AutoRenews)
+				if apply {
+					if err := st.MarkSubscriptionNonRecurring(sub.ID); err != nil {
+						log.Printf("repair:     WRITE FAILED: %v", err)
+						failed++
+						continue
+					}
+					repaired++
+				}
+				continue
+			}
 			// Report and continue: one unreconcilable customer must not stop
 			// the rest of the pass.
 			log.Printf("repair:   user=%s customer=%s SKIPPED: %v",
