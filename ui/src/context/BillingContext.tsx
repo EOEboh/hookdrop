@@ -185,7 +185,7 @@ function getPaystackConfig(
     amount,
     plan:     planCode ?? '',
     currency: 'NGN',
-    label:    `hookdrop Pro — ${isAnnual ? 'Annual' : 'Monthly'}`,
+    label:    `hookdrop Pro ${isAnnual ? 'Annual' : 'Monthly'}`,
     // Carried onto the transaction so subscription webhooks can identify the
     // local user. Renewals will not have it — those resolve by customer code.
     metadata: {

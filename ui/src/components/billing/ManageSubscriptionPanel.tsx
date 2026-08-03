@@ -111,16 +111,15 @@ export function ManageSubscriptionPanel({
         </div>
         {subscription?.cancel_at_period_end && (
           <p className="text-xs text-amber-400 pt-1">
-            Cancellation scheduled — access until {renewalDate}
+            Cancellation scheduled. Access continues until {renewalDate}
           </p>
         )}
       </div>
 
       {willNotRenew && (
         <p className="text-xs text-muted">
-          This is a one-off payment, so there is nothing to cancel — access
-          simply ends on {renewalDate}. Renew from the billing page to extend
-          it.
+          This is a one-off payment, so there is nothing to cancel. Access
+          ends on {renewalDate}. Renew from the billing page to extend it.
         </p>
       )}
 
