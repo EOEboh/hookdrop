@@ -722,12 +722,15 @@ func (s *Store) GetSubscription(userID string) (*models.Subscription, error) {
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		// No subscription row: return a default free subscription
+		// No subscription row: return a default free subscription.
+		// AutoRenews is true rather than the zero value so the payload does
+		// not describe a free plan as something that will not renew.
 		return &models.Subscription{
-			UserID:   userID,
-			Plan:     "free",
-			Status:   "active",
-			Currency: "usd",
+			UserID:     userID,
+			Plan:       "free",
+			Status:     "active",
+			Currency:   "usd",
+			AutoRenews: true,
 		}, nil
 	}
 	if err != nil {
@@ -925,6 +928,10 @@ func (s *Store) ListPaystackSubscriptionsNeedingRepair() ([]*models.Subscription
 		FROM subscriptions
 		WHERE provider = 'paystack'
 		  AND COALESCE(provider_sub_id,'') NOT LIKE 'SUB\_%' ESCAPE '\'
+		  -- Already reconciled. A row marked non-recurring will never gain a
+		  -- SUB_ code, because there is no subscription to find — without this
+		  -- it is reported as outstanding on every run, for ever.
+		  AND COALESCE(auto_renews,1) = 1
 		ORDER BY created_at`)
 	if err != nil {
 		return nil, err
