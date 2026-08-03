@@ -865,3 +865,39 @@ func TestPaystackWebhookPreservesAutoRenews(t *testing.T) {
 		t.Error("a webhook flipped auto_renews to true — it cannot see the authorization")
 	}
 }
+
+// Re-verifying the same reference must succeed but must not be applied twice.
+// Once the period stacks, a replay would otherwise hand out free time.
+func TestVerifyPaystack_ReplayingAReferenceDoesNotApplyTwice(t *testing.T) {
+	h, user := newBillingTestHandler(t,
+		verifyBodyReusable(testPlanMonthly, monthlyKobo, monthlyKobo, "card", true))
+
+	post := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.VerifyPaystack(rec, verifyRequest(user.ID, user.Email,
+			`{"reference":"T_ref","plan":"pro","interval":"month"}`))
+		return rec
+	}
+
+	if rec := post(); rec.Code != http.StatusOK {
+		t.Fatalf("first: got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	first, _ := h.Store.GetSubscription(user.ID)
+	if first.CurrentPeriodEnd == nil {
+		t.Fatal("no period after the first verification")
+	}
+	firstEnd := *first.CurrentPeriodEnd
+
+	for i := 2; i <= 4; i++ {
+		if rec := post(); rec.Code != http.StatusOK {
+			t.Fatalf("attempt %d: got %d, want 200 — a retry must not lock the customer out: %s",
+				i, rec.Code, rec.Body.String())
+		}
+	}
+
+	after, _ := h.Store.GetSubscription(user.ID)
+	if !after.CurrentPeriodEnd.Equal(firstEnd) {
+		t.Errorf("current_period_end moved from %v to %v — replaying a reference granted extra time",
+			firstEnd, after.CurrentPeriodEnd)
+	}
+}

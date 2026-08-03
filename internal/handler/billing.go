@@ -536,8 +536,46 @@ func (h *BillingHandler) VerifyPaystack(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "this payment has already been redeemed", http.StatusConflict)
 		return
 	}
-	// Same user re-verifying is idempotent: a double submit or a retried
-	// handlePaystackSuccess must not lock a paying customer out.
+	// Same user re-verifying must not fail — a double submit or a retried
+	// handlePaystackSuccess should not lock a paying customer out. But it must
+	// not be *applied* twice either: the period is extended from whatever is
+	// left, so replaying a reference would hand out free time.
+	//
+	// Recording the verification claims the reference. The UNIQUE index on
+	// event_key decides, which is stronger than comparing against
+	// provider_sub_id — that only remembers the most recent reference and
+	// would let an older one be replayed after a renewal.
+	claim := sha256.Sum256([]byte("paystack-verify:" + body.Reference))
+	claimKey := hex.EncodeToString(claim[:])
+	switch err := h.Store.RecordBillingEvent(&models.BillingEvent{
+		UserID:    user.ID,
+		Provider:  "paystack",
+		EventType: "verify",
+		Payload:   body.Reference,
+		EventKey:  claimKey,
+		ObjectID:  tx.CustomerCode,
+	}); {
+	case errors.Is(err, store.ErrDuplicateBillingEvent):
+		log.Printf("VerifyPaystack: reference %s already applied for user=%s — returning current state",
+			body.Reference, user.ID)
+		current, err := h.Store.GetSubscription(user.ID)
+		if err != nil {
+			http.Error(w, "store error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"plan":      current.Plan,
+			"status":    current.Status,
+			"is_trial":  false,
+			"trial_end": nil,
+		})
+		return
+	case err != nil:
+		log.Printf("VerifyPaystack: could not claim reference %s: %v", body.Reference, err)
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
 
 	log.Printf("VerifyPaystack: verified user=%s ref=%s plan=%s interval=%s amount=%d card_country=%s channel=%s reusable=%t payer_ip=%s",
 		user.ID, body.Reference, tx.Plan.Code, interval, tx.Amount,
