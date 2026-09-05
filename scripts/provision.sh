@@ -5,11 +5,16 @@
 # before it acts. It hardcodes no IP and no provider, because the point of
 # having it is that the *next* migration costs an afternoon instead of a week.
 #
-# Usage, from a machine that can already SSH to the box as its default user
-# (ubuntu on Oracle and GCP images, root on most other VPS providers):
+# Usage, on the box itself, as its default user (ubuntu on Oracle and GCP
+# images, root on most other VPS providers). The repo is public, so cloning it
+# needs no credentials and keeps provision.sh next to the deploy/ directory it
+# installs from:
 #
-#   scp -r deploy scripts/provision.sh scripts/backup.sh ubuntu@<ip>:/tmp/
-#   ssh ubuntu@<ip> 'sudo bash /tmp/provision.sh'
+#   git clone https://github.com/EOEboh/hookdrop.git ~/hookdrop
+#   sudo DEPLOY_PUBKEY="ssh-ed25519 AAAA..." bash ~/hookdrop/scripts/provision.sh
+#
+# To run it from a checkout laid out differently, point REPO_DIR at the repo
+# root explicitly.
 #
 # Then, separately, because they carry secrets:
 #   scp deploy/.env  deploy@<ip>:/opt/hookdrop/.env
@@ -24,7 +29,12 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/hookdrop}"
 APP_USER="${APP_USER:-deploy}"
-SRC_DIR="${SRC_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The repo root, which must contain deploy/. Resolved rather than assumed:
+# running this as a loose file in /tmp used to make deploy/ resolve to /deploy
+# and fail with a confusing "no such file" from install(1).
+REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+DEPLOY_SRC="$REPO_DIR/deploy"
 
 # The public half of the key the Deploy workflow authenticates with
 # (repo secret DEPLOY_SSH_KEY). Pass it in rather than baking it in:
@@ -35,6 +45,15 @@ log() { printf '\n\033[1m→ %s\033[0m\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)"; exit 1; }
+
+for f in "$DEPLOY_SRC/docker-compose.yml" "$DEPLOY_SRC/Caddyfile" \
+	"$DEPLOY_SRC/.env.example" "$SCRIPT_DIR/backup.sh"; do
+	[ -f "$f" ] || {
+		echo "missing: $f"
+		echo "Run this from a repo checkout, or set REPO_DIR to the repo root."
+		exit 1
+	}
+done
 
 # ── Packages ────────────────────────────────────────────────────────────────
 log "Base packages"
@@ -107,17 +126,17 @@ if [ -f "$APP_DIR/docker-compose.yml" ]; then
 	echo "  compose already present, left alone"
 else
 	install -o "$APP_USER" -g "$APP_USER" -m 0644 \
-		"$SRC_DIR/../deploy/docker-compose.yml" "$APP_DIR/docker-compose.yml"
+		"$DEPLOY_SRC/docker-compose.yml" "$APP_DIR/docker-compose.yml"
 fi
 
-install -m 0644 "$SRC_DIR/../deploy/Caddyfile" /etc/caddy/Caddyfile
+install -m 0644 "$DEPLOY_SRC/Caddyfile" /etc/caddy/Caddyfile
 install -d -o caddy -g caddy -m 0755 /var/log/caddy
-caddy validate --config /etc/caddy/Caddyfile
+caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
 if [ ! -f "$APP_DIR/.env" ]; then
 	install -o "$APP_USER" -g "$APP_USER" -m 0600 \
-		"$SRC_DIR/../deploy/.env.example" "$APP_DIR/.env"
+		"$DEPLOY_SRC/.env.example" "$APP_DIR/.env"
 	echo "  ! $APP_DIR/.env created from the example — fill it in before starting."
 fi
 
@@ -145,7 +164,7 @@ echo "    firewall (Oracle: VCN security list or NSG). Both layers, or neither w
 
 # ── Backups ─────────────────────────────────────────────────────────────────
 log "Backup timer"
-install -m 0755 "$SRC_DIR/backup.sh" "$APP_DIR/backup.sh"
+install -m 0755 "$SCRIPT_DIR/backup.sh" "$APP_DIR/backup.sh"
 chown "$APP_USER:$APP_USER" "$APP_DIR/backup.sh"
 
 cat >/etc/systemd/system/hookdrop-backup.service <<UNIT
