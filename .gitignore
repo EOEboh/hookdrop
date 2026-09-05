@@ -39,3 +39,10 @@ ui/.env
 
 # CLI build artifacts
 cli/dist/
+
+# SQLite database and its WAL. Tracked once by accident; they generate
+# constant diff noise and have silently blocked a git pull.
+hookdrop.db
+hookdrop.db-wal
+hookdrop.db-shm
+*.db.gz
