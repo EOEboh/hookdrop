@@ -1,0 +1,56 @@
+# TLS and reverse proxy for hookdrop. Lives at /etc/caddy/Caddyfile on the
+# host; installed by scripts/provision.sh.
+#
+# Caddy obtains and renews Let's Encrypt certificates on its own, so there is
+# no certbot and no renewal timer to forget.
+#
+# This file is deliberately in two phases. Caddy tries to get a certificate
+# for every hostname named here, as soon as it loads. While api.hookdrop.app
+# still resolves to the OLD host, its ACME challenge is answered by that host
+# and fails — repeatedly, and Let's Encrypt rate-limits failed validations
+# (5 per hostname per hour). So the real hostname stays commented out until
+# DNS actually points here.
+
+(hookdrop) {
+	reverse_proxy localhost:8080 {
+		# SSE. Caddy buffers responses by default, which holds an event
+		# stream until the buffer fills — the stream connects and then
+		# appears to hang. -1 flushes every write straight through.
+		# (The app sets X-Accel-Buffering: no for nginx; Caddy ignores it.)
+		flush_interval -1
+
+		# An event stream is open for as long as the tab is. Without this
+		# Caddy closes it mid-stream.
+		transport http {
+			read_timeout 0
+		}
+	}
+
+	# The app reads the first X-Forwarded-For entry for per-IP rate limiting
+	# and for the payer IP recorded on checkout. Caddy sets that header by
+	# default; do not strip or overwrite it.
+
+	encode gzip
+
+	log {
+		output file /var/log/caddy/hookdrop.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}
+
+# ── Phase 1: validating the new box, before any DNS change ──────────────────
+# Point tmp-api.hookdrop.app at this box and everything can be exercised here
+# while the old host still serves production. Also receives the old host's
+# proxied traffic during the cutover. Delete once the old host is gone.
+tmp-api.hookdrop.app {
+	import hookdrop
+}
+
+# ── Phase 2: after the A record for api.hookdrop.app points HERE ────────────
+# Uncomment, then: sudo caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+#                  sudo systemctl reload caddy
+#api.hookdrop.app {
+#	import hookdrop
+#}
