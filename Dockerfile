@@ -1,5 +1,7 @@
-# Build stage — explicitly target AMD64 (Hetzner's architecture)
-FROM --platform=linux/amd64 golang:1.23-alpine AS builder
+# Build stage. Architecture is left to the builder: `docker build` follows the
+# host, and buildx follows --platform. Pinning it here (it was linux/amd64 for
+# Hetzner) silently overrides the platform the deploy workflow asks for.
+FROM golang:1.23-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev
 
@@ -14,7 +16,7 @@ COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o hookdrop .
 
 # Run stage
-FROM --platform=linux/amd64 alpine:3.21
+FROM alpine:3.21
 RUN apk add --no-cache ca-certificates sqlite
 
 WORKDIR /app

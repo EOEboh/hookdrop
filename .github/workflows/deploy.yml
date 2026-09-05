@@ -20,7 +20,11 @@ concurrency:
 jobs:
   deploy:
     name: Build, push and release
-    runs-on: ubuntu-latest
+    # Native arm64, to match the Oracle Ampere host. The SQLite driver is cgo,
+    # so a cross-build would run the compile under QEMU; this runner compiles
+    # directly, and vet/test then run on the architecture production serves.
+    # Free on public repos — the label fails on private ones.
+    runs-on: ubuntu-24.04-arm
     environment: production
     permissions:
       contents: read
@@ -74,7 +78,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/arm64
           push: true
           tags: |
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }}

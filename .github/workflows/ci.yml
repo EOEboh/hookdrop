@@ -89,7 +89,10 @@ jobs:
 
   docker:
     name: Production image builds
-    runs-on: ubuntu-latest
+    # arm64, matching the deploy workflow and the production host. On
+    # ubuntu-latest this job would build an image no one runs, and stop
+    # proving what it exists to prove.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
