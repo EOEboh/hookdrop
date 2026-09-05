@@ -1,0 +1,38 @@
+# TLS and reverse proxy for hookdrop. Lives at /etc/caddy/Caddyfile on the
+# host; installed by scripts/provision.sh.
+#
+# Caddy obtains and renews Let's Encrypt certificates on its own, so there is
+# no certbot and no renewal timer to forget.
+
+# The temporary hostname used to validate a new box before DNS is cut over,
+# and to receive proxied traffic from the old box during propagation. Delete
+# this block once the old host is decommissioned.
+tmp-api.hookdrop.app,
+api.hookdrop.app {
+	reverse_proxy localhost:8080 {
+		# SSE. Caddy buffers responses by default, which holds an event
+		# stream until the buffer fills — the stream connects and then
+		# appears to hang. -1 flushes every write straight through.
+		# (The app sets X-Accel-Buffering: no for nginx; Caddy ignores it.)
+		flush_interval -1
+
+		# An event stream is open for as long as the tab is. Without this
+		# Caddy closes it mid-stream.
+		transport http {
+			read_timeout 0
+		}
+	}
+
+	# The app reads the first X-Forwarded-For entry for per-IP rate limiting
+	# and for the payer IP recorded on checkout. Caddy sets that header by
+	# default; do not strip or overwrite it.
+
+	encode gzip
+
+	log {
+		output file /var/log/caddy/hookdrop.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}

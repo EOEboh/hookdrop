@@ -1,0 +1,41 @@
+# Production compose for hookdrop. Lives at /opt/hookdrop/docker-compose.yml
+# on the host; installed by scripts/provision.sh.
+#
+# The Deploy workflow rewrites the `image:` line in place with
+#   sed -i "s|^\(\s*image:\).*|\1 $IMAGE:$TAG|"
+# so that line must stay a plain top-level-indented `image:` with nothing
+# after it on the same line. Do not add a comment to it.
+
+services:
+  hookdrop:
+    image: ghcr.io/eoeboh/hookdrop:latest
+    container_name: hookdrop
+    restart: unless-stopped
+
+    # Bound to loopback on purpose. Caddy terminates TLS and proxies to it;
+    # the port is never reachable from outside the box.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    # Secrets live in a 0600 file owned by deploy, not inline here. Keeping
+    # them out of this file is what lets it be tracked in git.
+    env_file:
+      - /opt/hookdrop/.env
+
+    # The SQLite database and its WAL. This is the only durable state on the
+    # box; everything else is rebuilt from the image.
+    volumes:
+      - ./data:/data
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
