@@ -1,0 +1,81 @@
+# Render Blueprint. Create the service from this with:
+#   Render dashboard → New → Blueprint → connect this repo
+#
+# Deployment is a git push: Render builds the Dockerfile itself, so the GHCR
+# image and the Deploy workflow are not involved. Those stay in the repo for
+# the VPS path, dormant while hosting is here.
+#
+# Values marked `sync: false` are NOT stored in this file or in git — Render
+# prompts for them once, in the dashboard. Everything secret is in that group.
+
+services:
+  - type: web
+    name: hookdrop-api
+    runtime: docker
+    plan: free
+    # Free-plan regions: oregon, frankfurt, singapore, ohio, virginia.
+    # Frankfurt is closest to both the current Hetzner box and, by submarine
+    # cable routing, to the Nigerian traffic.
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+
+    domains:
+      - api.hookdrop.app
+
+    envVars:
+      # ── Database ────────────────────────────────────────────────────────
+      # The full libSQL URL including the auth token, e.g.
+      #   libsql://hookdrop-<org>.turso.io?authToken=eyJ...
+      # A plain file path will NOT work here: this image is built
+      # CGO_ENABLED=0 and the local-file driver needs cgo. It fails loudly at
+      # boot rather than silently, so a mistake is obvious in the logs.
+      - key: DB_PATH
+        sync: false
+
+      # ── Core. PORT is injected by Render; do not set it. ─────────────────
+      - key: API_URL
+        value: https://api.hookdrop.app
+      - key: FRONTEND_URL
+        value: https://hookdrop.app
+      - key: ALLOWED_ORIGIN
+        value: https://hookdrop.app
+      - key: EMAIL_FROM
+        value: hookdrop <noreply@hookdrop.app>
+      - key: JWT_SECRET
+        sync: false
+      - key: APP_VERSION
+        # Render exposes the deployed commit; surfaced by /health.
+        fromService:
+          type: web
+          name: hookdrop-api
+          property: commit
+
+      # ── Email ───────────────────────────────────────────────────────────
+      - key: RESEND_API_KEY
+        sync: false
+
+      # ── Lemon Squeezy. Must match the API key's mode. ────────────────────
+      - key: LEMONSQUEEZY_TEST_MODE
+        value: "false"
+      - key: LEMONSQUEEZY_API_KEY
+        sync: false
+      - key: LEMONSQUEEZY_STORE_ID
+        sync: false
+      - key: LEMONSQUEEZY_WEBHOOK_SECRET
+        sync: false
+      - key: LEMONSQUEEZY_VARIANT_PRO_MONTHLY
+        sync: false
+      - key: LEMONSQUEEZY_VARIANT_PRO_ANNUAL
+        sync: false
+
+      # ── Paystack ────────────────────────────────────────────────────────
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_WEBHOOK_SECRET
+        sync: false
+      - key: PAYSTACK_PLAN_PRO_MONTHLY
+        sync: false
+      - key: PAYSTACK_PLAN_PRO_ANNUAL
+        sync: false
