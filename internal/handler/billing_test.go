@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,9 +73,12 @@ func verifyBodyFrom(status, email, planCode string, amount, planAmount int, card
 func newBillingTestHandler(t *testing.T, paystackResponse string) (*BillingHandler, *models.User) {
 	t.Helper()
 
-	st, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	st, err := store.New(store.TestDSN(t.TempDir()))
 	if err != nil {
 		t.Fatalf("new store: %v", err)
+	}
+	if err := st.ResetForTest(); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
 	user, err := st.GetOrCreateUser("buyer@example.com")
 	if err != nil {
@@ -408,9 +410,12 @@ const lsWebhookSecret = "ls-test-secret"
 func newWebhookTestHandler(t *testing.T) (*BillingHandler, *models.User) {
 	t.Helper()
 
-	st, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	st, err := store.New(store.TestDSN(t.TempDir()))
 	if err != nil {
 		t.Fatalf("new store: %v", err)
+	}
+	if err := st.ResetForTest(); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
 	user, err := st.GetOrCreateUser("subscriber@example.com")
 	if err != nil {
@@ -596,9 +601,12 @@ const paystackSecret = "paystack-hook-secret"
 
 func newPaystackWebhookHandler(t *testing.T) (*BillingHandler, *models.User) {
 	t.Helper()
-	st, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	st, err := store.New(store.TestDSN(t.TempDir()))
 	if err != nil {
 		t.Fatalf("new store: %v", err)
+	}
+	if err := st.ResetForTest(); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
 	user, err := st.GetOrCreateUser("ngn@example.com")
 	if err != nil {
