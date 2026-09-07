@@ -12,10 +12,12 @@ import (
 	"github.com/EOEboh/hookdrop/internal/models"
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/tursodatabase/libsql-client-go/libsql"
 )
 
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	remote bool
 }
 
 func (s *Store) Ping() error {
@@ -37,16 +39,48 @@ func (s *Store) Ping() error {
 	return nil
 }
 
+// remoteDBPrefixes are the schemes that mean "this database lives on another
+// host", i.e. libSQL/Turso rather than a local file.
+var remoteDBPrefixes = []string{"libsql://", "https://", "http://", "wss://", "ws://"}
+
+func isRemoteDB(dbPath string) bool {
+	for _, p := range remoteDBPrefixes {
+		if strings.HasPrefix(dbPath, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func New(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
-	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+	var db *sql.DB
+	var err error
+
+	if isRemoteDB(dbPath) {
+		// libSQL over the network. The WAL and busy-timeout parameters are
+		// meaningless here — journalling is the server's problem — and the
+		// auth token rides in the URL, so the path is passed through as-is.
+		db, err = sql.Open("libsql", dbPath)
+		if err != nil {
+			return nil, fmt.Errorf("open db: %w", err)
+		}
+		// Every statement is a network round trip, so serialising them all
+		// onto one connection (which is right for a local file, below) would
+		// turn per-query latency into per-request latency. The server
+		// handles concurrent writers itself.
+		db.SetMaxOpenConns(10)
+		db.SetMaxIdleConns(10)
+		db.SetConnMaxLifetime(5 * time.Minute)
+	} else {
+		db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+		if err != nil {
+			return nil, fmt.Errorf("open db: %w", err)
+		}
+		// SQLite works best with a single writer
+		db.SetMaxOpenConns(1)
 	}
 
-	// SQLite works best with a single writer
-	db.SetMaxOpenConns(1)
-
-	s := &Store{db: db}
+	s := &Store{db: db, remote: isRemoteDB(dbPath)}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}

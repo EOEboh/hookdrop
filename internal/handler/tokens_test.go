@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,9 +13,12 @@ import (
 
 func newTokenTestHandler(t *testing.T, perHour int) (*TokensHandler, string) {
 	t.Helper()
-	st, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	st, err := store.New(store.TestDSN(t.TempDir()))
 	if err != nil {
 		t.Fatalf("new store: %v", err)
+	}
+	if err := st.ResetForTest(); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
 	user, err := st.GetOrCreateUser("mint@example.com")
 	if err != nil {

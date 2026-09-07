@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,9 +10,12 @@ import (
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(filepath.Join(t.TempDir(), "test.db"))
+	s, err := New(TestDSN(t.TempDir()))
 	if err != nil {
 		t.Fatalf("new store: %v", err)
+	}
+	if err := s.ResetForTest(); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
 	return s
 }
